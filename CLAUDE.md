@@ -79,9 +79,15 @@ Avoid:
 
 ## Build and Version Identification
 
-`src/temperature-card.ts` contains the `__TEMPERATURE_CARD_BUILD__` placeholder. `deploy.ps1` replaces it in the deployed copy only, with `TEMPERATURE <git short hash>-<manifest hash>`. The card logs it to the browser console on load (`temperature-card TEMPERATURE ...`) so you can confirm which build Home Assistant actually loaded.
+`src/temperature-card.ts` contains the `__TEMPERATURE_CARD_BUILD__` placeholder. `deploy.ps1` replaces it in the deployed copy only, with `TEMPERATURE <git short hash>-<manifest hash>`.
 
-Do not remove the build identifier or the placeholder mechanism unless explicitly requested.
+The identifier is shown as a small build tag at the bottom-left of the card, below the grid, in every configuration (permanent requirement), and is also logged to the browser console on load (`temperature-card TEMPERATURE ...`). It is the only text allowed below the 1rem minimum (0.8125rem, theme secondary color), because it is a diagnostic label rather than content.
+
+Never judge a visual change in Home Assistant without first confirming the build tag shows the expected identifier.
+
+Do not remove the build tag, the console line, or the placeholder mechanism unless explicitly requested.
+
+`debug: true` (config) is TEMPORARY instrumentation for the theme investigation: it prints what the browser resolved for the first cell and the outer card under the build tag. Remove it once that investigation is closed.
 
 ## Generated Files
 

@@ -11,9 +11,9 @@
 /**
  * Build identifier. The placeholder is left untouched in source and in
  * dist/; deploy.ps1 replaces it only in the copy written to Home Assistant,
- * with "TEMPERATURE <git short hash>-<manifest hash>". It is logged to the
- * browser console on load rather than rendered, so the card itself stays
- * clean.
+ * with "TEMPERATURE <git short hash>-<manifest hash>". It is shown at the
+ * bottom-left of the card and logged to the browser console on load, so it
+ * is always clear which build Home Assistant actually loaded.
  */
 export const TEMPERATURE_CARD_BUILD = "__TEMPERATURE_CARD_BUILD__";
 
@@ -60,6 +60,11 @@ interface SensorConfig {
  */
 interface TemperatureCardConfig {
   sensors: SensorConfig[];
+  /**
+   * TEMPORARY (theme investigation): shows resolved theme/cell colours and
+   * browser details under the build tag. Remove once that is settled.
+   */
+  debug: boolean;
 }
 
 /** States that mean "there is no reading", with the text shown for each. */
@@ -117,7 +122,24 @@ const STYLES = `
   ha-card {
     height: 100%;
     box-sizing: border-box;
-    padding: 12px;
+    padding: 12px 12px 6px;
+  }
+
+  /* Build tag (and the temporary debug readout), bottom-left, below the
+     grid. A deliberate exception to the 1rem minimum: it is a diagnostic
+     label, not content. Most of its height comes out of the card's bottom
+     padding. */
+  .footer {
+    margin-top: 4px;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    color: var(--secondary-text-color);
+    overflow-wrap: anywhere;
+  }
+
+  .debug {
+    margin-top: 4px;
+    white-space: pre-line;
   }
 
   .grid {
@@ -277,6 +299,11 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
   if (!config || typeof config !== "object") throw new Error(USAGE);
   const raw = config as Record<string, unknown>;
 
+  if (raw.debug !== undefined && typeof raw.debug !== "boolean") {
+    throw new Error("'debug' must be true or false.");
+  }
+  const debug = raw.debug === true;
+
   if (raw.sensors !== undefined) {
     if (raw.entity !== undefined) {
       throw new Error("Use either 'entity' (one sensor) or 'sensors' (a list), not both.");
@@ -284,11 +311,11 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
     if (!Array.isArray(raw.sensors) || raw.sensors.length === 0) {
       throw new Error("'sensors' must be a list with at least one sensor, each with an 'entity'.");
     }
-    return { sensors: raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`)) };
+    return { sensors: raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`)), debug };
   }
 
   if (typeof raw.entity !== "string" || raw.entity.trim() === "") throw new Error(USAGE);
-  return { sensors: [{ entity: raw.entity.trim() }] };
+  return { sensors: [{ entity: raw.entity.trim() }], debug };
 }
 
 /**
@@ -374,6 +401,8 @@ export class TemperatureCard extends HTMLElement {
    * and the DOM is left alone.
    */
   private _renderedHtml?: string;
+  /** TEMPORARY (theme investigation): last debug text logged to the console. */
+  private _loggedDebug?: string;
 
   constructor() {
     super();
@@ -392,6 +421,11 @@ export class TemperatureCard extends HTMLElement {
   set hass(hass: HomeAssistant) {
     this._hass = hass;
     this._render();
+  }
+
+  connectedCallback(): void {
+    // Computed styles only exist once the card is in the document.
+    if (this._config?.debug) this._showDebug();
   }
 
   get hass(): HomeAssistant | undefined {
@@ -415,11 +449,55 @@ export class TemperatureCard extends HTMLElement {
       <style>${STYLES}</style>
       <ha-card>
         <div class="grid">${this._config.sensors.map((sensor) => renderCell(hass, sensor)).join("")}</div>
+        <div class="footer">
+          <div class="build">${escapeHtml(TEMPERATURE_CARD_BUILD)}</div>
+          ${this._config.debug ? `<div class="debug"></div>` : ""}
+        </div>
       </ha-card>
     `;
-    if (html === this._renderedHtml) return;
-    this._renderedHtml = html;
-    root.innerHTML = html;
+    if (html !== this._renderedHtml) {
+      this._renderedHtml = html;
+      root.innerHTML = html;
+    }
+    // Refreshed on every hass update, so a theme change shows up too.
+    if (this._config.debug) this._showDebug();
+  }
+
+  /**
+   * TEMPORARY (theme investigation): writes what the browser actually
+   * resolved for the first cell and the outer card into the footer, and
+   * logs it to the console when it changes.
+   */
+  private _showDebug(): void {
+    const root = this.shadowRoot;
+    const out = root?.querySelector(".debug");
+    const cell = root?.querySelector(".cell");
+    const card = root?.querySelector("ha-card");
+    if (!out || !cell || !card || !this.isConnected) return;
+
+    const cellStyle = getComputedStyle(cell);
+    const cardStyle = getComputedStyle(card);
+    const themeVar = (name: string) => `${name}: ${cellStyle.getPropertyValue(name).trim() || "(not set)"}`;
+    const colorMix =
+      typeof CSS !== "undefined" && CSS.supports("background", "color-mix(in srgb, currentColor 5%, transparent)");
+    const text = [
+      `color-mix: ${colorMix ? "supported" : "NOT supported"}`,
+      `cell background: ${cellStyle.backgroundColor}`,
+      `cell border: ${cellStyle.borderTopWidth} ${cellStyle.borderTopColor}`,
+      `card background: ${cardStyle.backgroundColor}; card border: ${cardStyle.borderTopWidth} ${cardStyle.borderTopColor}`,
+      themeVar("--primary-text-color"),
+      themeVar("--divider-color"),
+      themeVar("--ha-card-border-color"),
+      themeVar("--secondary-background-color"),
+      themeVar("--ha-card-border-radius"),
+      `browser: ${navigator.userAgent}`,
+    ].join("\n");
+
+    out.textContent = text;
+    if (text !== this._loggedDebug) {
+      this._loggedDebug = text;
+      console.info(`temperature-card ${TEMPERATURE_CARD_BUILD} debug\n${text}`);
+    }
   }
 }
 

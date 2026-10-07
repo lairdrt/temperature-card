@@ -51,6 +51,7 @@ Use either `entity` or `sensors`, not both.
 | --- | --- |
 | `entity` | One temperature entity. Shorthand for a one-item `sensors` list. |
 | `sensors` | List of sensors, shown in this order. |
+| `debug` | Temporary, for troubleshooting themes. `true` shows the colours the browser actually resolved under the build tag. Off by default. |
 
 Each item in `sensors`:
 
@@ -110,9 +111,10 @@ and at least one commit in this repository. It:
 It only writes into `www\temperature-card` and refuses any other destination.
 It never touches Home Assistant's `.storage`.
 
-To check which build is loaded, open the browser console and look for the
-`temperature-card TEMPERATURE ...` line. If you copy `dist/` by hand instead,
-that line shows the literal placeholder, which is expected.
+To check which build is loaded, look at the small build tag at the bottom-left
+of the card (`TEMPERATURE <commit>-<hash>`); the same line is logged to the
+browser console. If you copy `dist/` by hand instead, the tag shows the
+literal placeholder, which is expected.
 
 ## Development
 
