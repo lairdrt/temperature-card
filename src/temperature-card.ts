@@ -59,7 +59,20 @@ const NO_READING_LABELS: Record<string, string> = {
  * color, which the name and value inherit. If --secondary-text-color were
  * ever undefined, the declaration falls back to the inherited (primary)
  * color instead of a hard-coded one. The font family is inherited from
- * Home Assistant. Sizes use rem so they scale with the browser's font size.
+ * Home Assistant.
+ *
+ * Sizing: ha-card is a size container, so the name and reading scale with
+ * the card's own width (cqi), not the viewport, and stay proportionate when
+ * the card is narrow. clamp() bounds keep the smallest text at 1.25rem and
+ * cap the reading at 5rem. Each clamp() is preceded by a fixed rem size for
+ * browsers without container units. The unit and status text are sized in
+ * em of the reading, so they stay subordinate to the number at any size.
+ *
+ * Layout: the name sits top-left; the reading is centered in the space
+ * below it. The reading area keeps one line of reading height even when it
+ * shows a status message, so the card height doesn't change when a sensor
+ * goes unavailable. If the card is too narrow, the unit wraps under the
+ * number rather than overflowing.
  */
 const STYLES = `
   :host {
@@ -70,39 +83,58 @@ const STYLES = `
     height: 100%;
     box-sizing: border-box;
     padding: 16px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    container-type: inline-size;
   }
 
   .name {
     font-size: 1.25rem;
+    font-size: clamp(1.25rem, 6.5cqi, 1.5rem);
     font-weight: var(--ha-font-weight-medium, 500);
     line-height: 1.35;
     overflow-wrap: anywhere;
+    /* At most two lines, so long names can't push the card taller. */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
   }
 
   .reading {
+    flex: 1 0 auto;
     display: flex;
     flex-wrap: wrap;
+    justify-content: center;
     align-items: baseline;
-    column-gap: 0.25rem;
+    align-content: center;
+    column-gap: 0.06em;
+    min-height: 1.15em;
     margin-top: 0.25rem;
+    font-size: 4rem;
+    font-size: clamp(2.5rem, 24cqi, 5rem);
+    line-height: 1.15;
+    text-align: center;
+    /* Last resort in very narrow cards: break text rather than overflow. */
+    overflow-wrap: anywhere;
+  }
+
+  .reading > * {
+    min-width: 0;
   }
 
   .value {
-    font-size: 3.5rem;
     font-weight: var(--ha-font-weight-normal, 400);
-    line-height: 1.1;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
   }
 
   .unit {
-    font-size: 1.5rem;
+    font-size: max(1.25rem, 0.45em);
     color: var(--secondary-text-color);
   }
 
   .status {
-    margin-top: 0.5rem;
-    font-size: 1.25rem;
-    line-height: 1.35;
+    font-size: max(1.25rem, 0.35em);
     color: var(--secondary-text-color);
   }
 `;
@@ -174,7 +206,7 @@ export class TemperatureCard extends HTMLElement {
   }
 
   getCardSize(): number {
-    return 2;
+    return 3;
   }
 
   private _render(): void {
@@ -195,7 +227,7 @@ export class TemperatureCard extends HTMLElement {
     if (!stateObj) {
       return `
         <div class="name">${escapeHtml(config.entity)}</div>
-        <div class="status">Entity not found</div>
+        <div class="reading"><span class="status">Entity not found</span></div>
       `;
     }
 
@@ -204,7 +236,7 @@ export class TemperatureCard extends HTMLElement {
     if (noReadingLabel) {
       return `
         <div class="name">${name}</div>
-        <div class="status">${noReadingLabel}</div>
+        <div class="reading"><span class="status">${noReadingLabel}</span></div>
       `;
     }
 
