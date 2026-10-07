@@ -225,18 +225,22 @@ const STYLES = `
     color: var(--secondary-text-color);
   }
 
+  /* Humidity: "54% humidity" on one line, left-aligned with the
+     temperature, as a clearly secondary readout. The value is large and in
+     the primary text colour; the word is a small label. The gap above it
+     separates it from the numerals' descent so it reads as its own line. */
   .humidity {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     column-gap: 0.4rem;
-    margin-top: 0.5rem;
+    margin-top: 0.75rem;
     line-height: 1.1;
   }
 
   .humidity-value {
     font-size: 1.75rem;
-    font-size: clamp(1.5rem, 15cqi, 2.25rem);
+    font-size: clamp(1.5rem, 16cqi, 2.25rem);
     font-weight: min(var(--ha-font-weight-normal, 400), 600);
   }
 
