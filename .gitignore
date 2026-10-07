@@ -1,0 +1,28 @@
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output
+dist/
+coverage/
+
+# Vite
+.vite/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor temporary files
+*.swp
+*.swo
+*~

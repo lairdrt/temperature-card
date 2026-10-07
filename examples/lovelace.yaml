@@ -1,0 +1,12 @@
+# Minimal example.
+#
+# Add the card resource once (Settings -> Dashboards -> Resources):
+#   url: /local/temperature-card/loader.js
+#   type: module
+# (loader.js imports temperature-card.js with a fresh ?ts= on every page
+# load; do not register temperature-card.js itself as a resource.)
+#
+# Replace the entity with any temperature sensor in your Home Assistant.
+
+type: custom:temperature-card
+entity: sensor.living_room_temperature
