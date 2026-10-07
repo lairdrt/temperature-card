@@ -51,7 +51,10 @@ Full theme awareness is required.
 - Inherit Home Assistant's font stack; never import external fonts.
 - The card must look right under both dark and light HA themes, and remain readable under arbitrary user themes.
 - Don't rely on a single theme variable for visible separation: themes often define variables that are present but weak (identical card/page backgrounds, faint dividers), and `var()` fallbacks only cover undefined variables. Derive surfaces and outlines from theme variables with `color-mix()` (anchored to the text color, which every usable theme contrasts with its surfaces), with a plain-variable fallback for browsers without it.
-- Check visual changes against real installed themes (`Z:\themes`, read-only), including Graphite E-ink Dark, not just HA's defaults.
+- Check visual changes against real installed themes (`Z:\themes`, read-only), including Graphite E-ink Dark, not just HA's defaults. Judge them from real rendered screenshots (including HA's panel-view layout), not contrast numbers alone.
+- Cell design: a sensor cell is a panel defined by its surface (a tint of the text color), not by a full outline, plus one accent rail. Don't reintroduce visible outlines or tune border contrast to fix separation.
+- The accent rail's color is controlled only by the cell-level custom property `--temperature-card-accent`, which the card reads but never declares (default: the theme's `--primary-color`). Future temperature-range coloring sets that property per cell; don't color the rail any other way.
+- Text weights follow the theme's `--ha-font-weight-*` variables but are capped at 600, because some themes (Graphite E-ink: 900) make large numerals blocky.
 
 ## Readability and Accessibility (hard requirement)
 
@@ -86,8 +89,6 @@ The identifier is shown as a small build tag at the bottom-left of the card, bel
 Never judge a visual change in Home Assistant without first confirming the build tag shows the expected identifier.
 
 Do not remove the build tag, the console line, or the placeholder mechanism unless explicitly requested.
-
-`debug: true` (config) is TEMPORARY instrumentation for the theme investigation: it prints what the browser resolved for the first cell and the outer card under the build tag. Remove it once that investigation is closed.
 
 ## Generated Files
 

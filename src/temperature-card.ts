@@ -60,11 +60,6 @@ interface SensorConfig {
  */
 interface TemperatureCardConfig {
   sensors: SensorConfig[];
-  /**
-   * TEMPORARY (theme investigation): shows resolved theme/cell colours and
-   * browser details under the build tag. Remove once that is settled.
-   */
-  debug: boolean;
 }
 
 /** States that mean "there is no reading", with the text shown for each. */
@@ -96,20 +91,17 @@ const NO_HUMIDITY_READING_LABELS: Record<string, string> = {
  * without container units. Corners follow the theme's card radius (same
  * chain as ha-card), scaled down.
  *
- * Cell surface and outline must stay visible even in themes whose card,
- * page and secondary backgrounds are identical, or whose divider is faint
- * (e.g. Graphite E-ink Dark: all backgrounds black). A var() fallback only
- * helps when a variable is undefined, not when it is defined but weak, so
- * both are derived with color-mix() from theme variables:
- * - surface: a 7% tint of the theme's text color over the card, so it
- *   lifts on dark themes and deepens on light ones;
- * - outline: the theme's own card-outline color (ha-card's chain:
- *   --ha-card-border-color, then --divider-color) at half strength, plus
- *   15% of the text color as a floor. Themes that draw strong card
- *   outlines get clearly visible cell outlines that stay below the card's;
- *   themes with faint dividers get a gentle lift.
- * Without color-mix() support, the outline uses the same card-outline
- * chain at full strength and the surface uses --secondary-background-color.
+ * Cell design: each sensor is a panel defined by its surface, not by an
+ * outline, plus one accent rail. The surface must stay clearly visible
+ * even in themes whose card, page and secondary backgrounds are identical
+ * (e.g. Graphite E-ink Dark: all black). A var() fallback only helps when
+ * a variable is undefined, not when it is defined but weak, so the surface
+ * is a 12% tint of the theme's text color laid over the card (charcoal on
+ * black, lighter tiles on dark cards, soft grey on light cards; translucent
+ * cards stay translucent). With the surface doing the separating there is
+ * no visible outline. Without color-mix() support the surface falls back
+ * to --secondary-background-color and the outline to ha-card's own outline
+ * chain (--ha-card-border-color, then --divider-color).
  *
  * Text that cannot fit wraps or, as a last resort, breaks, rather than
  * overflowing its cell. Names are limited to two lines.
@@ -122,24 +114,18 @@ const STYLES = `
   ha-card {
     height: 100%;
     box-sizing: border-box;
-    padding: 12px 12px 6px;
+    padding: 12px 12px 8px;
   }
 
-  /* Build tag (and the temporary debug readout), bottom-left, below the
-     grid. A deliberate exception to the 1rem minimum: it is a diagnostic
-     label, not content. Most of its height comes out of the card's bottom
-     padding. */
-  .footer {
-    margin-top: 4px;
+  /* Build tag, bottom-left, below the grid. A deliberate exception to the
+     1rem minimum: it is a diagnostic label, not content. */
+  .build {
+    margin-top: 8px;
     font-size: 0.8125rem;
     line-height: 1.25;
+    letter-spacing: 0.02em;
     color: var(--secondary-text-color);
     overflow-wrap: anywhere;
-  }
-
-  .debug {
-    margin-top: 4px;
-    white-space: pre-line;
   }
 
   .grid {
@@ -149,10 +135,11 @@ const STYLES = `
   }
 
   .cell {
+    position: relative;
     container-type: inline-size;
     min-width: 0;
     box-sizing: border-box;
-    padding: 14px 16px 16px;
+    padding: 16px 16px 18px 28px;
     border-radius: calc(var(--ha-card-border-radius, var(--ha-border-radius-lg, 12px)) * 0.75);
     border: 1px solid var(--ha-card-border-color, var(--divider-color));
     background: var(--secondary-background-color);
@@ -161,19 +148,39 @@ const STYLES = `
 
   @supports (background: color-mix(in srgb, currentColor 5%, transparent)) {
     .cell {
-      background: color-mix(in srgb, var(--primary-text-color, currentColor) 7%, transparent);
-      border-color: color-mix(
-        in srgb,
-        var(--ha-card-border-color, var(--divider-color, transparent)) 50%,
-        var(--primary-text-color, currentColor) 15%
-      );
+      background: color-mix(in srgb, var(--primary-text-color, currentColor) 12%, transparent);
+      border-color: transparent;
     }
   }
 
+  /* The accent rail: one per cell, inset in the left padding and running
+     the cell's full content height. Its colour comes from one cell-level
+     custom property, --temperature-card-accent, which is only ever read
+     here (never declared), so a theme or future per-cell code (e.g.
+     temperature ranges) can set it; otherwise it is the theme's accent. */
+  .accent {
+    position: absolute;
+    left: 11px;
+    top: 16px;
+    bottom: 18px;
+    width: 3px;
+    border-radius: calc(var(--ha-card-border-radius, var(--ha-border-radius-lg, 12px)) / 4);
+    background: var(--temperature-card-accent, var(--primary-color, currentColor));
+  }
+
+  @supports (background: color-mix(in srgb, currentColor 5%, transparent)) {
+    .accent {
+      background: color-mix(in srgb, var(--temperature-card-accent, var(--primary-color, currentColor)) 70%, transparent);
+    }
+  }
+
+  /* Weights follow the theme but are capped at 600: some themes (e.g.
+     Graphite E-ink, 900) set very heavy body weights that make large
+     numerals look blocky. Lighter theme weights are used unchanged. */
   .name {
     font-size: 1.25rem;
-    font-size: clamp(1.125rem, 8.5cqi, 1.5rem);
-    font-weight: var(--ha-font-weight-medium, 500);
+    font-size: clamp(1.125rem, 9cqi, 1.5rem);
+    font-weight: min(var(--ha-font-weight-medium, 500), 600);
     line-height: 1.3;
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -187,9 +194,9 @@ const STYLES = `
     align-items: flex-start;
     column-gap: 0.08em;
     min-height: 1em;
-    margin-top: 0.25rem;
+    margin-top: 0.5rem;
     font-size: 3.5rem;
-    font-size: clamp(2.75rem, 31cqi, 6rem);
+    font-size: clamp(2.75rem, 33cqi, 6rem);
     line-height: 1;
   }
 
@@ -199,7 +206,7 @@ const STYLES = `
   }
 
   .value {
-    font-weight: var(--ha-font-weight-normal, 400);
+    font-weight: min(var(--ha-font-weight-normal, 400), 600);
     letter-spacing: -0.03em;
   }
 
@@ -223,14 +230,14 @@ const STYLES = `
     flex-wrap: wrap;
     align-items: baseline;
     column-gap: 0.4rem;
-    margin-top: 0.375rem;
+    margin-top: 0.5rem;
     line-height: 1.1;
   }
 
   .humidity-value {
     font-size: 1.75rem;
-    font-size: clamp(1.5rem, 14cqi, 2.25rem);
-    font-weight: var(--ha-font-weight-normal, 400);
+    font-size: clamp(1.5rem, 15cqi, 2.25rem);
+    font-weight: min(var(--ha-font-weight-normal, 400), 600);
   }
 
   .humidity-label,
@@ -299,11 +306,6 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
   if (!config || typeof config !== "object") throw new Error(USAGE);
   const raw = config as Record<string, unknown>;
 
-  if (raw.debug !== undefined && typeof raw.debug !== "boolean") {
-    throw new Error("'debug' must be true or false.");
-  }
-  const debug = raw.debug === true;
-
   if (raw.sensors !== undefined) {
     if (raw.entity !== undefined) {
       throw new Error("Use either 'entity' (one sensor) or 'sensors' (a list), not both.");
@@ -311,11 +313,11 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
     if (!Array.isArray(raw.sensors) || raw.sensors.length === 0) {
       throw new Error("'sensors' must be a list with at least one sensor, each with an 'entity'.");
     }
-    return { sensors: raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`)), debug };
+    return { sensors: raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`)) };
   }
 
   if (typeof raw.entity !== "string" || raw.entity.trim() === "") throw new Error(USAGE);
-  return { sensors: [{ entity: raw.entity.trim() }], debug };
+  return { sensors: [{ entity: raw.entity.trim() }] };
 }
 
 /**
@@ -385,6 +387,7 @@ function renderCell(hass: HomeAssistant, sensor: SensorConfig): string {
   const name = sensor.name || stateObj?.attributes.friendly_name || sensor.entity;
   return `
     <div class="cell">
+      <span class="accent" aria-hidden="true"></span>
       <div class="name">${escapeHtml(name)}</div>
       ${renderTemperature(hass, stateObj)}
       ${renderHumidity(hass, sensor.humidity)}
@@ -401,8 +404,6 @@ export class TemperatureCard extends HTMLElement {
    * and the DOM is left alone.
    */
   private _renderedHtml?: string;
-  /** TEMPORARY (theme investigation): last debug text logged to the console. */
-  private _loggedDebug?: string;
 
   constructor() {
     super();
@@ -421,11 +422,6 @@ export class TemperatureCard extends HTMLElement {
   set hass(hass: HomeAssistant) {
     this._hass = hass;
     this._render();
-  }
-
-  connectedCallback(): void {
-    // Computed styles only exist once the card is in the document.
-    if (this._config?.debug) this._showDebug();
   }
 
   get hass(): HomeAssistant | undefined {
@@ -449,55 +445,12 @@ export class TemperatureCard extends HTMLElement {
       <style>${STYLES}</style>
       <ha-card>
         <div class="grid">${this._config.sensors.map((sensor) => renderCell(hass, sensor)).join("")}</div>
-        <div class="footer">
-          <div class="build">${escapeHtml(TEMPERATURE_CARD_BUILD)}</div>
-          ${this._config.debug ? `<div class="debug"></div>` : ""}
-        </div>
+        <div class="build">${escapeHtml(TEMPERATURE_CARD_BUILD)}</div>
       </ha-card>
     `;
-    if (html !== this._renderedHtml) {
-      this._renderedHtml = html;
-      root.innerHTML = html;
-    }
-    // Refreshed on every hass update, so a theme change shows up too.
-    if (this._config.debug) this._showDebug();
-  }
-
-  /**
-   * TEMPORARY (theme investigation): writes what the browser actually
-   * resolved for the first cell and the outer card into the footer, and
-   * logs it to the console when it changes.
-   */
-  private _showDebug(): void {
-    const root = this.shadowRoot;
-    const out = root?.querySelector(".debug");
-    const cell = root?.querySelector(".cell");
-    const card = root?.querySelector("ha-card");
-    if (!out || !cell || !card || !this.isConnected) return;
-
-    const cellStyle = getComputedStyle(cell);
-    const cardStyle = getComputedStyle(card);
-    const themeVar = (name: string) => `${name}: ${cellStyle.getPropertyValue(name).trim() || "(not set)"}`;
-    const colorMix =
-      typeof CSS !== "undefined" && CSS.supports("background", "color-mix(in srgb, currentColor 5%, transparent)");
-    const text = [
-      `color-mix: ${colorMix ? "supported" : "NOT supported"}`,
-      `cell background: ${cellStyle.backgroundColor}`,
-      `cell border: ${cellStyle.borderTopWidth} ${cellStyle.borderTopColor}`,
-      `card background: ${cardStyle.backgroundColor}; card border: ${cardStyle.borderTopWidth} ${cardStyle.borderTopColor}`,
-      themeVar("--primary-text-color"),
-      themeVar("--divider-color"),
-      themeVar("--ha-card-border-color"),
-      themeVar("--secondary-background-color"),
-      themeVar("--ha-card-border-radius"),
-      `browser: ${navigator.userAgent}`,
-    ].join("\n");
-
-    out.textContent = text;
-    if (text !== this._loggedDebug) {
-      this._loggedDebug = text;
-      console.info(`temperature-card ${TEMPERATURE_CARD_BUILD} debug\n${text}`);
-    }
+    if (html === this._renderedHtml) return;
+    this._renderedHtml = html;
+    root.innerHTML = html;
   }
 }
 

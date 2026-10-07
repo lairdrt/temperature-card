@@ -19,8 +19,10 @@ history, and a visual editor are not built yet.
 - Shows "Unavailable", "No reading", or "Entity not found" (and the humidity
   equivalents) instead of a value when there is nothing to show.
 - Takes all colors from the active Home Assistant theme and uses Home
-  Assistant's font. Cells stay visibly separated even in themes whose card
-  and background colors are identical (for example Graphite E-ink Dark).
+  Assistant's font. Each sensor is a softly tinted panel with a thin accent
+  rail in the theme's accent color, so cells stay clearly separated even in
+  themes whose card and background colors are identical (for example
+  Graphite E-ink Dark).
 
 ## Examples
 
@@ -51,7 +53,6 @@ Use either `entity` or `sensors`, not both.
 | --- | --- |
 | `entity` | One temperature entity. Shorthand for a one-item `sensors` list. |
 | `sensors` | List of sensors, shown in this order. |
-| `debug` | Temporary, for troubleshooting themes. `true` shows the colours the browser actually resolved under the build tag. Off by default. |
 
 Each item in `sensors`:
 
