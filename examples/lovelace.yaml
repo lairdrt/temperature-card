@@ -1,4 +1,4 @@
-# Minimal example.
+# Examples.
 #
 # Add the card resource once (Settings -> Dashboards -> Resources):
 #   url: /local/temperature-card/loader.js
@@ -6,7 +6,19 @@
 # (loader.js imports temperature-card.js with a fresh ?ts= on every page
 # load; do not register temperature-card.js itself as a resource.)
 #
-# Replace the entity with any temperature sensor in your Home Assistant.
+# Replace the entities with temperature and humidity sensors from your own
+# Home Assistant.
 
+# Several sensors. `humidity` and `name` are optional per sensor.
 type: custom:temperature-card
-entity: sensor.living_room_temperature
+sensors:
+  - entity: sensor.garage_fridge_temperature
+    name: Garage Fridge
+  - entity: sensor.living_room_temperature
+    humidity: sensor.living_room_humidity
+  - entity: sensor.bedroom_temperature
+
+# One sensor (the original form, still supported):
+#
+# type: custom:temperature-card
+# entity: sensor.living_room_temperature

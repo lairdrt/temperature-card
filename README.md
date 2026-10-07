@@ -3,28 +3,61 @@
 A custom Home Assistant Lovelace card for temperature sensors.
 
 The goal is a compact, readable, theme-aware temperature dashboard card.
-**This project is in early development.** The card currently shows the
-current reading of one sensor, and nothing else.
+**This project is in early development.** Groups, averages, color ranges,
+history, and a visual editor are not built yet.
 
 ## What it does today
 
-- Shows one sensor's friendly name and its current temperature, with the unit
-  Home Assistant reports.
-- Formats the value with Home Assistant's own formatter where available, so
-  the sensor's display precision and your number format are respected.
-- Shows "Unavailable", "No reading", or "Entity not found" instead of a value
-  when there is nothing to show.
+- Shows one or more sensors as a grid of cells. Each cell shows a name, the
+  current temperature (large, with a smaller raised unit), and optionally the
+  current humidity.
+- The number of columns follows the card's own width (one column when
+  narrow, up to four when wide), and text in each cell scales with that
+  cell's width.
+- Formats values with Home Assistant's own formatter where available, so each
+  sensor's display precision and your number format are respected.
+- Shows "Unavailable", "No reading", or "Entity not found" (and the humidity
+  equivalents) instead of a value when there is nothing to show.
 - Takes all colors from the active Home Assistant theme and uses Home
   Assistant's font.
 
-## Example
+## Examples
+
+Several sensors:
+
+```yaml
+type: custom:temperature-card
+sensors:
+  - entity: sensor.garage_fridge_temperature
+    name: Garage Fridge
+  - entity: sensor.living_room_temperature
+    humidity: sensor.living_room_humidity
+  - entity: sensor.bedroom_temperature
+```
+
+One sensor (the original form, still supported):
 
 ```yaml
 type: custom:temperature-card
 entity: sensor.living_room_temperature
 ```
 
-`entity` is required and is the only option.
+## Options
+
+Use either `entity` or `sensors`, not both.
+
+| Option | Description |
+| --- | --- |
+| `entity` | One temperature entity. Shorthand for a one-item `sensors` list. |
+| `sensors` | List of sensors, shown in this order. |
+
+Each item in `sensors`:
+
+| Key | Required | Description |
+| --- | --- | --- |
+| `entity` | Yes | Temperature entity. |
+| `humidity` | No | Humidity entity shown under the temperature. Omit it and no humidity line is shown. |
+| `name` | No | Display name. Defaults to the temperature entity's friendly name. |
 
 ## Build
 

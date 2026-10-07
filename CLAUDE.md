@@ -4,7 +4,7 @@
 
 This repository contains `temperature-card`, a custom Home Assistant Lovelace card for temperature sensors.
 
-The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current state is an early baseline: one card showing one sensor's current reading. Do not describe or assume features that have not been built.
+The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current state is an early visual prototype: a responsive grid of sensor cells, each with a name, the current temperature, and optional humidity. Groups, averages, color ranges, history, and a visual editor are not built. Do not describe or assume features that have not been built.
 
 ## Reference Project: yardian-card
 
@@ -55,7 +55,8 @@ Full theme awareness is required.
 
 The card must be comfortably readable for older eyes.
 
-- No tiny typography. The smallest text is 1.25rem; the main reading is much larger.
+- No tiny typography. Nothing is smaller than 1rem (16px), and that size is only for short secondary labels; names are at least 1.125rem; the temperature is by far the largest element.
+- Never shrink text to fit more grid columns. Fewer, readable columns beat more, smaller ones.
 - Use rem-based sizes so the browser's font-size setting is respected.
 - Keep contrast high: primary text color for names and values, secondary text color only for large supporting text.
 - Elegant, calm typography. No monospace/terminal styling, gauges, gradients, or decorative icons.
