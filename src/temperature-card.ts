@@ -88,9 +88,23 @@ const NO_HUMIDITY_READING_LABELS: Record<string, string> = {
  * Cells: each cell is a size container, so its text scales with that
  * cell's width (cqi), not the whole card's. clamp() bounds keep every size
  * readable; each clamp() is preceded by a fixed rem size for browsers
- * without container units. The cell surface is a faint tint of the theme's
- * text color (lighter on dark themes, darker on light ones), and its
- * corners follow the theme's card radius.
+ * without container units. Corners follow the theme's card radius (same
+ * chain as ha-card), scaled down.
+ *
+ * Cell surface and outline must stay visible even in themes whose card,
+ * page and secondary backgrounds are identical, or whose divider is faint
+ * (e.g. Graphite E-ink Dark: all backgrounds black). A var() fallback only
+ * helps when a variable is undefined, not when it is defined but weak, so
+ * both are derived with color-mix() from theme variables:
+ * - surface: a 7% tint of the theme's text color over the card, so it
+ *   lifts on dark themes and deepens on light ones;
+ * - outline: the theme's own card-outline color (ha-card's chain:
+ *   --ha-card-border-color, then --divider-color) at half strength, plus
+ *   15% of the text color as a floor. Themes that draw strong card
+ *   outlines get clearly visible cell outlines that stay below the card's;
+ *   themes with faint dividers get a gentle lift.
+ * Without color-mix() support, the outline uses the same card-outline
+ * chain at full strength and the surface uses --secondary-background-color.
  *
  * Text that cannot fit wraps or, as a last resort, breaks, rather than
  * overflowing its cell. Names are limited to two lines.
@@ -117,14 +131,20 @@ const STYLES = `
     min-width: 0;
     box-sizing: border-box;
     padding: 14px 16px 16px;
-    border-radius: calc(var(--ha-card-border-radius, 12px) * 0.75);
-    border: 1px solid var(--divider-color);
+    border-radius: calc(var(--ha-card-border-radius, var(--ha-border-radius-lg, 12px)) * 0.75);
+    border: 1px solid var(--ha-card-border-color, var(--divider-color));
+    background: var(--secondary-background-color);
     overflow-wrap: anywhere;
   }
 
   @supports (background: color-mix(in srgb, currentColor 5%, transparent)) {
     .cell {
-      background: color-mix(in srgb, var(--primary-text-color) 4%, transparent);
+      background: color-mix(in srgb, var(--primary-text-color, currentColor) 7%, transparent);
+      border-color: color-mix(
+        in srgb,
+        var(--ha-card-border-color, var(--divider-color, transparent)) 50%,
+        var(--primary-text-color, currentColor) 15%
+      );
     }
   }
 
@@ -145,7 +165,7 @@ const STYLES = `
     align-items: flex-start;
     column-gap: 0.08em;
     min-height: 1em;
-    margin-top: 0.5rem;
+    margin-top: 0.25rem;
     font-size: 3.5rem;
     font-size: clamp(2.75rem, 31cqi, 6rem);
     line-height: 1;
@@ -181,19 +201,31 @@ const STYLES = `
     flex-wrap: wrap;
     align-items: baseline;
     column-gap: 0.4rem;
-    margin-top: 0.625rem;
-    line-height: 1.15;
+    margin-top: 0.375rem;
+    line-height: 1.1;
   }
 
   .humidity-value {
     font-size: 1.75rem;
     font-size: clamp(1.5rem, 14cqi, 2.25rem);
+    font-weight: var(--ha-font-weight-normal, 400);
   }
 
   .humidity-label,
   .humidity-status {
     font-size: 1rem;
     color: var(--secondary-text-color);
+  }
+
+  /* Small (1rem) secondary text sits on the tinted cell surface: nudge the
+     theme's secondary color toward its primary color so it stays
+     comfortably readable. Large secondary text (the unit) keeps the plain
+     secondary color. */
+  @supports (color: color-mix(in srgb, currentColor 5%, transparent)) {
+    .humidity-label,
+    .humidity-status {
+      color: color-mix(in srgb, var(--secondary-text-color, currentColor), var(--primary-text-color, currentColor) 25%);
+    }
   }
 `;
 

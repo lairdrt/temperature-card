@@ -19,7 +19,8 @@ history, and a visual editor are not built yet.
 - Shows "Unavailable", "No reading", or "Entity not found" (and the humidity
   equivalents) instead of a value when there is nothing to show.
 - Takes all colors from the active Home Assistant theme and uses Home
-  Assistant's font.
+  Assistant's font. Cells stay visibly separated even in themes whose card
+  and background colors are identical (for example Graphite E-ink Dark).
 
 ## Examples
 

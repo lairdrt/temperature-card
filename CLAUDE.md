@@ -50,6 +50,8 @@ Full theme awareness is required.
 - Let `ha-card` provide the card surface, border, radius, and shadow.
 - Inherit Home Assistant's font stack; never import external fonts.
 - The card must look right under both dark and light HA themes, and remain readable under arbitrary user themes.
+- Don't rely on a single theme variable for visible separation: themes often define variables that are present but weak (identical card/page backgrounds, faint dividers), and `var()` fallbacks only cover undefined variables. Derive surfaces and outlines from theme variables with `color-mix()` (anchored to the text color, which every usable theme contrasts with its surfaces), with a plain-variable fallback for browsers without it.
+- Check visual changes against real installed themes (`Z:\themes`, read-only), including Graphite E-ink Dark, not just HA's defaults.
 
 ## Readability and Accessibility (hard requirement)
 
