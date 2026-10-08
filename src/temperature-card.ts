@@ -56,6 +56,8 @@ interface SensorConfig {
   temp_entity: string;
   /** Optional humidity entity shown under the temperature. */
   humidity_entity?: string;
+  /** Optional battery-level entity shown as a small indicator, bottom right. */
+  battery_entity?: string;
   /** Optional display name; defaults to the temperature entity's friendly name. */
   name?: string;
 }
@@ -151,6 +153,8 @@ const STYLES = `
 
   .cell {
     position: relative;
+    display: flex;
+    flex-direction: column;
     container-type: inline-size;
     min-width: 0;
     box-sizing: border-box;
@@ -265,6 +269,107 @@ const STYLES = `
     color: var(--secondary-text-color);
   }
 
+  /* Bottom tier, only in cells with a battery: humidity left, battery
+     right, sharing a baseline. If both cannot fit, the battery wraps under
+     rather than colliding. In a battery-only cell the tier sits at the
+     bottom of the cell, tucked under the number (whose digits have no
+     descenders) and partly into the bottom padding, so it adds almost no
+     height. */
+  .lower {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 0.75rem;
+    row-gap: 0.25rem;
+    margin-top: 0.75rem;
+  }
+
+  .lower > .humidity {
+    margin-top: 0;
+  }
+
+  .lower--battery-only {
+    margin-top: auto;
+    margin-bottom: -0.5rem;
+  }
+
+  /* Battery: deliberately small and tertiary. The icon is drawn with CSS in
+     em units, so it scales with the text and stays crisp. Its bars show the
+     level (0-4), so low and critical are distinguishable without colour. */
+  .battery {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35em;
+    margin-left: auto;
+    font-size: 0.9375rem;
+    font-size: clamp(0.875rem, 6.5cqi, 1rem);
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--secondary-text-color);
+  }
+
+  .battery-icon {
+    position: relative;
+    display: inline-flex;
+    gap: 0.08em;
+    box-sizing: border-box;
+    width: 1.6em;
+    height: 0.82em;
+    margin-right: 0.14em;
+    padding: 0.1em;
+    border: 0.1em solid currentColor;
+    border-radius: 0.2em;
+  }
+
+  .battery-icon::after {
+    content: "";
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    width: 0.12em;
+    height: 0.34em;
+    transform: translate(0.1em, -50%);
+    border-radius: 0 0.06em 0.06em 0;
+    background: currentColor;
+  }
+
+  .battery-bar {
+    flex: 1 1 0;
+    border-radius: 0.04em;
+  }
+
+  .battery-bar.on {
+    background: currentColor;
+  }
+
+  .battery--low .battery-icon {
+    color: var(--warning-color, currentColor);
+  }
+
+  .battery--critical {
+    color: var(--error-color, currentColor);
+  }
+
+  .battery--critical .battery-percent {
+    font-weight: min(var(--ha-font-weight-medium, 500), 600);
+  }
+
+  .battery--unavailable {
+    opacity: 0.5;
+  }
+
+  .battery--unavailable .battery-icon {
+    border-style: dashed;
+  }
+
+  /* Beside humidity in a narrow cell, show the icon alone (it still shows
+     the level; the full value is in its label and tooltip). */
+  @container (max-width: 239.98px) {
+    .lower > .humidity + .battery .battery-percent {
+      display: none;
+    }
+  }
+
   /* Small (1rem) secondary text sits on the tinted cell surface: nudge the
      theme's secondary color toward its primary color so it stays
      comfortably readable. Large secondary text (the unit) keeps the plain
@@ -326,7 +431,8 @@ function entityField(raw: Record<string, unknown>, key: string, legacyKey: strin
 
 /**
  * One `sensors` item. Canonical keys are temp_entity / humidity_entity /
- * name; the older entity / humidity keys are still accepted.
+ * battery_entity / name; the older entity / humidity keys are still
+ * accepted.
  */
 function normalizeSensor(item: unknown, where: string): SensorConfig {
   if (!item || typeof item !== "object" || Array.isArray(item)) {
@@ -338,8 +444,10 @@ function normalizeSensor(item: unknown, where: string): SensorConfig {
 
   const sensor: SensorConfig = { temp_entity: tempEntity };
   const humidityEntity = entityField(raw, "humidity_entity", "humidity", where);
+  const batteryEntity = textField(raw, "battery_entity", where);
   const name = textField(raw, "name", where);
   if (humidityEntity) sensor.humidity_entity = humidityEntity;
+  if (batteryEntity) sensor.battery_entity = batteryEntity;
   if (name) sensor.name = name;
   return sensor;
 }
@@ -489,13 +597,7 @@ function renderHumidity(hass: HomeAssistant, entity: string | undefined, digits:
   const label = stateObj ? NO_HUMIDITY_READING_LABELS[stateObj.state] : "Humidity sensor not found";
   if (!stateObj || label) return `<div class="humidity"><span class="humidity-status">${label}</span></div>`;
 
-  // Humidity is shown as one formatted string ("54%"), keeping HA's own
-  // spacing between value and unit for the user's locale.
-  const parts = formatParts(hass, stateObj, digits);
-  let text = parts.map((part) => part.value).join("");
-  if (!parts.some((part) => part.type === "unit") && stateObj.attributes.unit_of_measurement) {
-    text += stateObj.attributes.unit_of_measurement;
-  }
+  const text = formattedText(hass, stateObj, digits);
   return `
     <div class="humidity">
       <span class="humidity-value">${escapeHtml(text)}</span>
@@ -504,15 +606,78 @@ function renderHumidity(hass: HomeAssistant, entity: string | undefined, digits:
   `;
 }
 
+/**
+ * A state as one formatted string ("54%"), keeping HA's own spacing between
+ * value and unit for the user's locale.
+ */
+function formattedText(hass: HomeAssistant, stateObj: HassEntity, digits: number): string {
+  const parts = formatParts(hass, stateObj, digits);
+  let text = parts.map((part) => part.value).join("");
+  if (!parts.some((part) => part.type === "unit") && stateObj.attributes.unit_of_measurement) {
+    text += stateObj.attributes.unit_of_measurement;
+  }
+  return text;
+}
+
+/**
+ * Battery level bands (on the whole, clamped percentage), highest first.
+ * Each band shows its number of bars (of 4); "low" and "critical" are the
+ * only ones that draw attention.
+ */
+const BATTERY_LEVELS: ReadonlyArray<{ min: number; level: string; bars: number }> = [
+  { min: 90, level: "full", bars: 4 },
+  { min: 65, level: "high", bars: 3 },
+  { min: 40, level: "medium", bars: 2 },
+  { min: 15, level: "low", bars: 1 },
+  { min: 0, level: "critical", bars: 0 },
+];
+
+function batteryIcon(bars: number): string {
+  const segments = [0, 1, 2, 3].map((i) => `<span class="battery-bar${i < bars ? " on" : ""}"></span>`).join("");
+  return `<span class="battery-icon" aria-hidden="true">${segments}</span>`;
+}
+
+/**
+ * A compact battery indicator: a drawn battery whose bars show the level,
+ * plus the percentage (hidden beside humidity in narrow cells). Battery
+ * problems never affect the rest of the cell: a missing, unavailable or
+ * non-numeric battery shows a faint dashed outline instead.
+ */
+function renderBattery(hass: HomeAssistant, entity: string | undefined): string {
+  if (!entity) return "";
+
+  const stateObj = hass.states[entity];
+  const value = stateObj && stateObj.state.trim() !== "" ? Number(stateObj.state) : NaN;
+  if (!stateObj || !Number.isFinite(value)) {
+    const label = stateObj ? "Battery unavailable" : "Battery sensor not found";
+    return `<span class="battery battery--unavailable" role="img" aria-label="${label}" title="${label}">${batteryIcon(0)}</span>`;
+  }
+
+  const percent = Math.min(100, Math.max(0, Math.round(value)));
+  const { level, bars } = BATTERY_LEVELS.find((band) => percent >= band.min) ?? BATTERY_LEVELS[BATTERY_LEVELS.length - 1];
+  const text = escapeHtml(formattedText(hass, { ...stateObj, state: String(percent) }, 0));
+  return `
+    <span class="battery battery--${level}" role="img" aria-label="Battery ${text}" title="Battery ${text}">
+      ${batteryIcon(bars)}<span class="battery-percent" aria-hidden="true">${text}</span>
+    </span>
+  `;
+}
+
 function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig): string {
   const stateObj = hass.states[sensor.temp_entity];
   const name = sensor.name || stateObj?.attributes.friendly_name || sensor.temp_entity;
+  const humidity = renderHumidity(hass, sensor.humidity_entity, config.humidityPrecision);
+  // Without a battery the cell is unchanged. With one, humidity (if any)
+  // and the battery share a bottom tier: humidity left, battery right.
+  const lower = sensor.battery_entity
+    ? `<div class="lower${sensor.humidity_entity ? "" : " lower--battery-only"}">${humidity}${renderBattery(hass, sensor.battery_entity)}</div>`
+    : humidity;
   return `
     <div class="cell">
       <span class="accent" aria-hidden="true"></span>
       <div class="name">${escapeHtml(name)}</div>
       ${renderTemperature(hass, stateObj, config.temperaturePrecision)}
-      ${renderHumidity(hass, sensor.humidity_entity, config.humidityPrecision)}
+      ${lower}
     </div>
   `;
 }

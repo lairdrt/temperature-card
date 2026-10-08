@@ -6,8 +6,9 @@
 # (loader.js imports temperature-card.js with a fresh ?ts= on every page
 # load; do not register temperature-card.js itself as a resource.)
 #
-# Each sensor needs a temp_entity; humidity_entity and name are optional.
-# Replace the entities with sensors from your own Home Assistant.
+# Each sensor needs a temp_entity; humidity_entity, battery_entity and name
+# are optional. Replace the entities with sensors from your own Home
+# Assistant.
 
 type: custom:temperature-card
 sensors:
@@ -35,6 +36,15 @@ sensors:
 
   - name: Shed
     temp_entity: sensor.shed_temperature
+
+# With a battery indicator (bottom right of the cell):
+#
+# type: custom:temperature-card
+# sensors:
+#   - name: Kitchen Freezer
+#     temp_entity: sensor.kitchen_kitchen_freezer_temperature
+#     humidity_entity: sensor.kitchen_kitchen_freezer_humidity
+#     battery_entity: sensor.kitchen_kitchen_freezer_battery
 
 # One sensor (simple shorthand):
 #

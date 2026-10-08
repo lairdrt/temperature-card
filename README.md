@@ -10,12 +10,13 @@ history, and a visual editor are not built yet.
 
 - Shows one or more sensors as a grid of cells. Each cell shows a name, the
   current temperature (large, with a smaller raised unit), and optionally the
-  current humidity.
+  current humidity and a small battery indicator.
 - The number of columns follows the card's own width (one column when
   narrow, up to four when wide), and text in each cell scales with that
   cell's width.
-- Formats values with Home Assistant's own formatter where available, so each
-  sensor's display precision and your number format are respected.
+- Shows numbers with the card's `temperature_precision` and
+  `humidity_precision` (not each entity's display precision), in your Home
+  Assistant number format and with the entity's unit.
 - Shows "Unavailable", "No reading", or "Entity not found" (and the humidity
   equivalents) instead of a value when there is nothing to show.
 - Takes all colors from the active Home Assistant theme and uses Home
@@ -48,6 +49,11 @@ sensors:
   - name: Hallway
     temp_entity: sensor.home_current_temperature
     humidity_entity: sensor.home_current_humidity
+
+  - name: Kitchen Freezer
+    temp_entity: sensor.kitchen_kitchen_freezer_temperature
+    humidity_entity: sensor.kitchen_kitchen_freezer_humidity
+    battery_entity: sensor.kitchen_kitchen_freezer_battery
 ```
 
 One sensor (simple shorthand):
@@ -79,7 +85,27 @@ Each item in `sensors`:
 | --- | --- | --- |
 | `temp_entity` | Yes | Temperature entity. |
 | `humidity_entity` | No | Humidity entity shown under the temperature. Omit it and no humidity line is shown. |
+| `battery_entity` | No | Battery-level entity (percent) shown as a small indicator at the bottom right of the cell. Omit it and no battery is shown. |
 | `name` | No | Display name. Defaults to the temperature entity's friendly name, then its entity ID. |
+
+### Battery indicator
+
+The battery sits at the bottom right of its sensor's cell, beside the
+humidity line when there is one. It is a small drawn battery whose bars
+show the level, plus the percentage:
+
+| Level | Bars | Shown as |
+| --- | --- | --- |
+| 90–100% | 4 | normal |
+| 65–89% | 3 | normal |
+| 40–64% | 2 | normal |
+| 15–39% | 1 | low: the battery takes the theme's warning color |
+| 0–14% | 0 | critical: battery and percentage take the theme's error color |
+
+In narrow cells that also show humidity, only the battery icon is shown; the
+exact percentage is still available as its tooltip. An unavailable, unknown,
+or missing battery entity shows a faint dashed outline instead of a level;
+it never affects the temperature or humidity.
 
 ### Older sensor-item keys (deprecated)
 

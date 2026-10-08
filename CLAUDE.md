@@ -64,7 +64,8 @@ Full theme awareness is required.
 
 The card must be comfortably readable for older eyes.
 
-- No tiny typography. Nothing is smaller than 1rem (16px), and that size is only for short secondary labels; names are at least 1.125rem; the temperature is by far the largest element.
+- No tiny typography. Nothing is smaller than 1rem (16px), and that size is only for short secondary labels; names are at least 1.125rem; the temperature is by far the largest element. Exceptions: the build tag (0.8125rem) and the tertiary battery percentage (0.875–1rem, with the level also shown by the icon's bars and in its label).
+- Battery status is tertiary: bottom right of the cell, never near the name, never competing with temperature or humidity. Low/critical are the only states that draw attention, and they must differ by icon bars as well as color.
 - Never shrink text to fit more grid columns. Fewer, readable columns beat more, smaller ones.
 - Use rem-based sizes so the browser's font-size setting is respected.
 - Keep contrast high: primary text color for names and values, secondary text color only for large supporting text.
