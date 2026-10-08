@@ -10,7 +10,8 @@ history, and a visual editor are not built yet.
 
 - Shows one or more sensors as a grid of cells. Each cell shows a name, the
   current temperature (large, with a smaller raised unit), and optionally the
-  current humidity and a small battery indicator.
+  current humidity (as a percentage, e.g. `52%`; `--%` when it has no
+  reading) and a small battery indicator.
 - The number of columns follows the card's own width (one column when
   narrow, up to four when wide), and text in each cell scales with that
   cell's width.
@@ -72,7 +73,7 @@ Use either `entity` or `sensors`, not both.
 | `entity` | One temperature entity. Shorthand for a one-item `sensors` list. |
 | `sensors` | List of sensors, shown in this order. |
 | `temperature_precision` | Decimals shown for every temperature on the card: a whole number from 0 to 3. Default `1` (e.g. `77.5 °F`). |
-| `humidity_precision` | Decimals shown for every humidity on the card: a whole number from 0 to 3. Default `0` (e.g. `52% humidity`). |
+| `humidity_precision` | Decimals shown for every humidity on the card: a whole number from 0 to 3. Default `0` (e.g. `52%`). |
 
 The precision options apply to the whole card and take the place of each
 entity's display precision setting in Home Assistant. Numbers still use your
@@ -102,8 +103,8 @@ show the level, plus the percentage:
 | 15–39% | 1 | low: the battery takes the theme's warning color |
 | 0–14% | 0 | critical: battery and percentage take the theme's error color |
 
-In narrow cells that also show humidity, only the battery icon is shown; the
-exact percentage is still available as its tooltip. An unavailable, unknown,
+In very narrow cells that also show humidity, only the battery icon is
+shown; the exact percentage is still available as its tooltip. An unavailable, unknown,
 or missing battery entity shows a faint dashed outline instead of a level;
 it never affects the temperature or humidity.
 

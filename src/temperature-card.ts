@@ -197,10 +197,10 @@ const STYLES = `
      Graphite E-ink, 900) set very heavy body weights that make large
      numerals look blocky. Lighter theme weights are used unchanged. */
   .name {
-    font-size: 1.25rem;
-    font-size: clamp(1.125rem, 9cqi, 1.5rem);
+    font-size: 1.375rem;
+    font-size: clamp(1.25rem, 10cqi, 1.625rem);
     font-weight: min(var(--ha-font-weight-medium, 500), 600);
-    line-height: 1.3;
+    line-height: 1.25;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -213,7 +213,7 @@ const STYLES = `
     align-items: flex-start;
     column-gap: 0.08em;
     min-height: 1em;
-    margin-top: 0.5rem;
+    margin-top: 0.375rem;
     font-size: 3.5rem;
     font-size: clamp(2.75rem, 33cqi, 6rem);
     line-height: 1;
@@ -244,10 +244,11 @@ const STYLES = `
     color: var(--secondary-text-color);
   }
 
-  /* Humidity: "54% humidity" on one line, left-aligned with the
-     temperature, as a clearly secondary readout. The value is large and in
-     the primary text colour; the word is a small label. The gap above it
-     separates it from the numerals' descent so it reads as its own line. */
+  /* Humidity: just the percentage ("54%"), left-aligned with the
+     temperature, as a clearly secondary readout in the primary text colour.
+     The word "humidity" is only in the tooltip and for screen readers. The
+     gap above it separates it from the numerals' descent so it reads as its
+     own line. With no reading it shows "--%" in the secondary colour. */
   .humidity {
     display: flex;
     flex-wrap: wrap;
@@ -263,10 +264,20 @@ const STYLES = `
     font-weight: min(var(--ha-font-weight-normal, 400), 600);
   }
 
-  .humidity-label,
-  .humidity-status {
-    font-size: 1.0625rem;
+  .humidity--no-reading .humidity-value {
     color: var(--secondary-text-color);
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   /* Bottom tier, only in cells with a battery: humidity left, battery
@@ -362,22 +373,12 @@ const STYLES = `
     border-style: dashed;
   }
 
-  /* Beside humidity in a narrow cell, show the icon alone (it still shows
-     the level; the full value is in its label and tooltip). */
-  @container (max-width: 239.98px) {
+  /* Beside humidity in a very narrow cell, show the icon alone (it still
+     shows the level; the full value is in its label and tooltip). Grid
+     cells are wide enough for both; this is for unusually narrow cards. */
+  @container (max-width: 159.98px) {
     .lower > .humidity + .battery .battery-percent {
       display: none;
-    }
-  }
-
-  /* Small (1rem) secondary text sits on the tinted cell surface: nudge the
-     theme's secondary color toward its primary color so it stays
-     comfortably readable. Large secondary text (the unit) keeps the plain
-     secondary color. */
-  @supports (color: color-mix(in srgb, currentColor 5%, transparent)) {
-    .humidity-label,
-    .humidity-status {
-      color: color-mix(in srgb, var(--secondary-text-color, currentColor), var(--primary-text-color, currentColor) 25%);
     }
   }
 `;
@@ -595,13 +596,23 @@ function renderHumidity(hass: HomeAssistant, entity: string | undefined, digits:
 
   const stateObj = hass.states[entity];
   const label = stateObj ? NO_HUMIDITY_READING_LABELS[stateObj.state] : "Humidity sensor not found";
-  if (!stateObj || label) return `<div class="humidity"><span class="humidity-status">${label}</span></div>`;
+  if (!stateObj || label) {
+    // No reading: a placeholder in the value's place, with the reason in
+    // the tooltip and for screen readers.
+    const placeholder = escapeHtml(`--${stateObj?.attributes.unit_of_measurement || "%"}`);
+    return `
+      <div class="humidity humidity--no-reading" title="${label}">
+        <span class="visually-hidden">${label}</span>
+        <span class="humidity-value" aria-hidden="true">${placeholder}</span>
+      </div>
+    `;
+  }
 
-  const text = formattedText(hass, stateObj, digits);
+  const text = escapeHtml(formattedText(hass, stateObj, digits));
   return `
-    <div class="humidity">
-      <span class="humidity-value">${escapeHtml(text)}</span>
-      <span class="humidity-label">humidity</span>
+    <div class="humidity" title="Humidity ${text}">
+      <span class="visually-hidden">Humidity </span>
+      <span class="humidity-value">${text}</span>
     </div>
   `;
 }
