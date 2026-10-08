@@ -43,10 +43,10 @@ interface HomeAssistant {
    */
   formatEntityStateToParts?: (stateObj: HassEntity) => ValuePart[];
   /** The user's language and number-format preference (HA profile settings). */
-  locale?: { language?: string; number_format?: string };
+  locale?: { language?: string; number_format?: string; time_format?: string; time_zone?: string };
   language?: string;
   /** HA's unit system; its temperature unit is used for mixed-unit roll-ups. */
-  config?: { unit_system?: { temperature?: string } };
+  config?: { unit_system?: { temperature?: string }; time_zone?: string };
   /** HA's WebSocket call, used only to read recorder history for the graphs. */
   callWS?: <T>(message: Record<string, unknown>) => Promise<T>;
 }
@@ -219,6 +219,9 @@ function temperatureState(stateObj: HassEntity | undefined): TemperatureState | 
  * history at all) both use it.
  */
 const GRAPH_MIN_CELL_REM = 30;
+/** Graph geometry (rem): where it starts in the cell, and the temperature-label column on its right. */
+const GRAPH_LEFT_REM = 16.5;
+const GRAPH_VALUES_REM = 3.25;
 
 const STYLES = `
   :host {
@@ -600,7 +603,7 @@ const STYLES = `
       position: absolute;
       top: 16px;
       bottom: 18px;
-      left: calc(28px + 16.5rem);
+      left: calc(28px + ${GRAPH_LEFT_REM}rem);
       right: 16px;
       pointer-events: none;
     }
@@ -613,12 +616,15 @@ const STYLES = `
     }
   }
 
+  /* Plot on the left, temperature labels in a column on its right, time
+     labels in a row underneath. The plot has no fill or background of its
+     own: the cell surface shows through evenly from edge to edge. */
   .graph-plot {
     position: absolute;
     top: 0;
     left: 0;
-    width: calc(100% - 3.25rem);
-    height: 100%;
+    width: calc(100% - ${GRAPH_VALUES_REM}rem);
+    height: calc(100% - 1.5rem);
     overflow: visible;
   }
 
@@ -630,11 +636,6 @@ const STYLES = `
     vector-effect: non-scaling-stroke;
   }
 
-  .graph-area {
-    fill: none;
-    fill: color-mix(in srgb, var(--primary-color, currentColor) 8%, transparent);
-  }
-
   .graph-line {
     fill: none;
     stroke: var(--primary-color, currentColor);
@@ -644,15 +645,47 @@ const STYLES = `
     vector-effect: non-scaling-stroke;
   }
 
-  .graph-tick {
+  .graph-values {
     position: absolute;
+    top: 0;
     right: 0;
-    transform: translateY(-50%);
+    width: calc(${GRAPH_VALUES_REM}rem - 0.5rem);
+    height: calc(100% - 1.5rem);
+  }
+
+  .graph-times {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: calc(100% - ${GRAPH_VALUES_REM}rem);
+    height: 1rem;
+  }
+
+  .graph-tick,
+  .graph-time {
+    position: absolute;
     font-size: 1rem;
     line-height: 1;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     color: var(--secondary-text-color);
+  }
+
+  .graph-tick {
+    left: 0;
+    transform: translateY(-50%);
+  }
+
+  .graph-time {
+    top: 0;
+  }
+
+  .graph-time--middle {
+    transform: translateX(-50%);
+  }
+
+  .graph-time--end {
+    transform: translateX(-100%);
   }
 `;
 
@@ -1076,8 +1109,8 @@ function renderCellContent(hass: HomeAssistant, cell: CellContent, config: Tempe
   `;
 }
 
-/** `graphs`: the cells are wide enough for a history graph (see TemperatureCard._measure). */
-function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig, graphs = false): string {
+/** `graph`: set when the cells are wide enough for a history graph (see TemperatureCard._measure). */
+function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig, graph?: GraphSize): string {
   const stateObj = hass.states[sensor.temp_entity];
   return renderCellContent(
     hass,
@@ -1087,7 +1120,7 @@ function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: Temperatu
       humidityHtml: renderHumidity(hass, sensor.humidity_entity, config.humidityPrecision),
       hasHumidity: Boolean(sensor.humidity_entity),
       batteryEntity: sensor.battery_entity,
-      graphHtml: graphs ? sensorGraph(hass, sensor, config) : "",
+      graphHtml: graph ? sensorGraph(hass, sensor, config, graph) : "",
     },
     config,
   );
@@ -1158,7 +1191,7 @@ function renderRollUp(
   item: Extract<GroupItem, { kind: "average" }>,
   groups: GroupConfig[],
   config: TemperatureCardConfig,
-  graphs = false,
+  graph?: GraphSize,
 ): string {
   const temperature = averageTemperature(hass, item.members);
   const humidity = averageHumidity(hass, item.members);
@@ -1179,7 +1212,7 @@ function renderRollUp(
       attrs: target
         ? ` role="button" tabindex="0" data-open-group="${escapeHtml(target.id)}" title="${escapeHtml(`Open ${target.name}`)}" aria-label="${escapeHtml(label)}"`
         : "",
-      graphHtml: graphs ? rollUpGraph(hass, item, temperature, config) : "",
+      graphHtml: graph ? rollUpGraph(hass, item, temperature, config, graph) : "",
     },
     config,
   );
@@ -1353,11 +1386,19 @@ function entityUnit(hass: HomeAssistant, entity: string): string {
   return String(hass.states[entity]?.attributes.unit_of_measurement ?? "").trim();
 }
 
+/** The plot's measured width, so the axis labels can be chosen to fit. */
+interface GraphSize {
+  /** Plot width in px (the graph less its temperature-label column). */
+  plotWidth: number;
+  /** Root font size in px; the labels are 1rem. */
+  rem: number;
+}
+
 /** A sensor cell's graph: its own temperature history. */
-function sensorGraph(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig): string {
+function sensorGraph(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig, size: GraphSize): string {
   const entry = historyCache.get(sensor.temp_entity);
   if (!entry?.series || entry.fetchedAt === undefined) return "";
-  return renderGraph(hass, [...entry.series], entry.fetchedAt, entityUnit(hass, sensor.temp_entity), config);
+  return renderGraph(hass, [...entry.series], entry.fetchedAt, entityUnit(hass, sensor.temp_entity), config, size);
 }
 
 /**
@@ -1372,6 +1413,7 @@ function rollUpGraph(
   item: Extract<GroupItem, { kind: "average" }>,
   current: HassEntity,
   config: TemperatureCardConfig,
+  size: GraphSize,
 ): string {
   const unit =
     String(current.attributes.unit_of_measurement ?? "") ||
@@ -1401,7 +1443,7 @@ function rollUpGraph(
     .filter(([bucket]) => bucket + BUCKET_MS <= end)
     .sort((a, b) => a[0] - b[0])
     .map(([bucket, total]): [number, number] => [bucket, total.sum / total.count]);
-  return renderGraph(hass, points, end, unit, config);
+  return renderGraph(hass, points, end, unit, config, size);
 }
 
 /**
@@ -1423,16 +1465,14 @@ function graphRange(low: number, high: number, unit: string): { min: number; max
 
 /**
  * Guide-line values: the finest round step (1, 2 or 5 x 10^n) that gives at
- * most three lines, kept a little away from the top and bottom edges so
- * their labels fit.
+ * most four lines within the plot's range. (A label on the very top or
+ * bottom line extends into the space around the plot, never over it.)
  */
-function graphTicks(min: number, max: number): { ticks: number[]; digits: number } {
-  const inset = (max - min) * 0.06;
-  const low = min + inset;
-  const high = max - inset;
+function graphTicks(low: number, high: number): { ticks: number[]; digits: number } {
+  const [min, max] = [low, high];
   let step = 1;
   for (let exponent = Math.floor(Math.log10(max - min)) - 2; ; exponent++) {
-    const candidate = [1, 2, 5].map((m) => m * 10 ** exponent).find((s) => Math.floor(high / s) - Math.ceil(low / s) + 1 <= 3);
+    const candidate = [1, 2, 5].map((m) => m * 10 ** exponent).find((s) => Math.floor(high / s) - Math.ceil(low / s) + 1 <= 4);
     if (candidate !== undefined) {
       step = candidate;
       break;
@@ -1444,9 +1484,94 @@ function graphTicks(min: number, max: number): { ticks: number[]; digits: number
 }
 
 /**
- * The graph: one line (with a faint fill) over the last 24 hours ending at
- * `end`, a few guide lines with their values at the right, and nothing
- * else. The SVG stretches to the space available (non-scaling strokes keep
+ * Hour labels in the user's time settings: HA's language, 12/24-hour
+ * preference and (if chosen in the profile) the server's time zone,
+ * otherwise the browser's. 12-hour clocks show "4 PM", 24-hour "16:00".
+ */
+function timeFormat(hass: HomeAssistant): { format: (time: number) => string; clock: (time: number) => { hour: number; minute: number } } {
+  const setting = hass.locale?.time_format;
+  const language = setting === "system" ? undefined : hass.locale?.language || hass.language || undefined;
+  const timeZone = hass.locale?.time_zone === "server" ? hass.config?.time_zone : undefined;
+  const make = (options: Intl.DateTimeFormatOptions, locale = language): Intl.DateTimeFormat => {
+    try {
+      return new Intl.DateTimeFormat(locale, { ...options, timeZone });
+    } catch {
+      return new Intl.DateTimeFormat(undefined, options);
+    }
+  };
+  const hour12 = setting === "12" ? true : setting === "24" ? false : undefined;
+  const twelveHour = make({ hour: "numeric", hour12 }).resolvedOptions().hour12 === true;
+  const formatter = twelveHour ? make({ hour: "numeric", hour12: true }) : make({ hour: "2-digit", minute: "2-digit", hour12: false });
+  const parts = make({ hour: "numeric", minute: "numeric", hourCycle: "h23" }, "en-US");
+  return {
+    format: (time) => formatter.format(time),
+    clock: timeZone
+      ? (time) => {
+          const p = parts.formatToParts(time);
+          return { hour: Number(p.find((x) => x.type === "hour")?.value) % 24, minute: Number(p.find((x) => x.type === "minute")?.value) };
+        }
+      : (time) => {
+          const date = new Date(time);
+          return { hour: date.getHours(), minute: date.getMinutes() };
+        },
+  };
+}
+
+interface TimeLabel {
+  /** Position along the plot, in % of its width. */
+  at: number;
+  text: string;
+  align: "middle" | "end";
+}
+
+/**
+ * Time labels: "Now" at the right end, plus whole local clock hours every 8
+ * hours (every 12 if the plot is too narrow for 8), each centred under its
+ * time. Of the possible sets (e.g. 12 AM / 8 AM / 4 PM, or 8 PM / 4 AM /
+ * 12 PM) the one with the most labels, then the most even spacing, is
+ * used, so the whole 24 hours is labelled. Labels never overlap each other,
+ * "Now" or the plot's left edge; their width is estimated generously from
+ * the 1rem font size.
+ */
+function timeLabels(hass: HomeAssistant, start: number, end: number, size: GraphSize): TimeLabel[] {
+  const { format, clock } = timeFormat(hass);
+  const width = (text: string): number => text.length * 0.62 * size.rem;
+  const gap = 0.75 * size.rem;
+  const now: TimeLabel = { at: 100, text: "Now", align: "end" };
+  const nowLeft = size.plotWidth - width(now.text);
+
+  // Every whole local hour in the window that can carry a label, with its extent in px.
+  const hours: Array<{ hour: number; label: TimeLabel; left: number; right: number }> = [];
+  const quarter = 15 * 60 * 1000;
+  for (let time = Math.ceil(start / quarter) * quarter; time < end; time += quarter) {
+    const { hour, minute } = clock(time);
+    if (minute !== 0) continue;
+    const text = format(time);
+    const center = ((time - start) / HISTORY_SPAN_MS) * size.plotWidth;
+    const left = center - width(text) / 2;
+    if (left < 0 || left + width(text) + gap > nowLeft) continue;
+    hours.push({ hour, label: { at: (center / size.plotWidth) * 100, text, align: "middle" }, left, right: left + width(text) });
+  }
+
+  let best: { labels: TimeLabel[]; clearance: number } | undefined;
+  for (const stepHours of [8, 12]) {
+    for (let phase = 0; phase < stepHours; phase += 2) {
+      const chosen = hours.filter((h) => h.hour % stepHours === phase);
+      let clearance = nowLeft - (chosen[chosen.length - 1]?.right ?? 0);
+      for (let i = 1; i < chosen.length; i++) clearance = Math.min(clearance, chosen[i].left - chosen[i - 1].right);
+      if (clearance < gap) continue;
+      if (!best || chosen.length > best.labels.length || (chosen.length === best.labels.length && clearance > best.clearance)) {
+        best = { labels: chosen.map((h) => h.label), clearance };
+      }
+    }
+  }
+  return [...(best?.labels ?? []), now];
+}
+
+/**
+ * The graph: one line over the last 24 hours ending at `end`, a few guide
+ * lines with their temperatures on the right, local times underneath, and
+ * nothing else. The SVG stretches to the space available (non-scaling strokes keep
  * lines crisp); the labels are HTML so their text is never distorted.
  * Points are 5-minute buckets, drawn at their midpoints.
  */
@@ -1456,6 +1581,7 @@ function renderGraph(
   end: number,
   unit: string,
   config: TemperatureCardConfig,
+  size: GraphSize,
 ): string {
   const start = end - HISTORY_SPAN_MS;
   const points = buckets
@@ -1463,14 +1589,14 @@ function renderGraph(
     .filter(([time]) => time >= start && time <= end);
   if (points.length < 2) return "";
 
-  const values = points.map(([, value]) => value);
-  const low = Math.min(...values);
-  const high = Math.max(...values);
+  const readings = points.map(([, value]) => value);
+  const low = Math.min(...readings);
+  const high = Math.max(...readings);
   const { min, max } = graphRange(low, high, unit);
   const x = (time: number): string => (((time - start) / HISTORY_SPAN_MS) * 100).toFixed(2);
   const y = (value: number): string => (((max - value) / (max - min)) * 100).toFixed(2);
 
-  // One path per run of points without a long gap.
+  // One path per run of points without a long gap (an unavailable sensor).
   const runs: Array<Array<[number, number]>> = [];
   points.forEach((point, index) => {
     if (index === 0 || point[0] - points[index - 1][0] > GRAPH_MAX_GAP_MS) runs.push([]);
@@ -1479,23 +1605,22 @@ function renderGraph(
   const line = runs
     .map((run) => run.map(([time, value], index) => `${index === 0 ? "M" : "L"}${x(time)} ${y(value)}`).join(""))
     .join("");
-  const area = runs
-    .filter((run) => run.length > 1)
-    .map((run) => `${run.map(([time, value], index) => `${index === 0 ? "M" : "L"}${x(time)} ${y(value)}`).join("")}L${x(run[run.length - 1][0])} 100L${x(run[0][0])} 100Z`)
-    .join("");
 
   const { ticks, digits } = graphTicks(min, max);
   const degree = unit.startsWith("°") || unit === "℉" || unit === "℃" ? "°" : "";
   const guides = ticks.map((tick) => `M0 ${y(tick)}H100`).join("");
-  const labels = ticks
+  const values = ticks
     .map((tick) => `<span class="graph-tick" style="top: ${y(tick)}%">${escapeHtml(`${formatNumberState(hass, String(tick), digits) ?? tick}${degree}`)}</span>`)
+    .join("");
+  const times = timeLabels(hass, start, end, size)
+    .map((t) => `<span class="graph-time graph-time--${t.align}" style="left: ${t.at.toFixed(2)}%">${escapeHtml(t.text)}</span>`)
     .join("");
 
   const reading = (value: number): string =>
     formattedText(hass, { entity_id: "sensor.temperature_card_history", state: String(value), attributes: { unit_of_measurement: unit, device_class: "temperature" } }, config.temperaturePrecision);
   const label = `Last 24 hours: low ${reading(low)}, high ${reading(high)}`;
 
-  return `<div class="graph" role="img" aria-label="${escapeHtml(label)}"><svg class="graph-plot" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path class="graph-guide" d="${guides}"/><path class="graph-area" d="${area}"/><path class="graph-line" d="${line}"/></svg>${labels}</div>`;
+  return `<div class="graph" role="img" aria-label="${escapeHtml(label)}"><svg class="graph-plot" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path class="graph-guide" d="${guides}"/><path class="graph-line" d="${line}"/></svg><div class="graph-values">${values}</div><div class="graph-times">${times}</div></div>`;
 }
 
 /** Every temperature entity whose history the given cells graph. */
@@ -1542,8 +1667,8 @@ export class TemperatureCard extends HTMLElement {
   private _swipe?: { pointerId: number; x: number; y: number };
   private _ignoreClicksUntil = 0;
   private _switchTimer?: number;
-  /** The cells are wide enough for history graphs (measured; see _measure). */
-  private _wide = false;
+  /** Set when the cells are wide enough for history graphs: the plot's size (see _measure). */
+  private _graphSize?: GraphSize;
   private _resizeObserver?: ResizeObserver;
   private _historyTimer?: number;
 
@@ -1593,7 +1718,7 @@ export class TemperatureCard extends HTMLElement {
     // History is refreshed on a timer, never by live state updates.
     window.clearInterval(this._historyTimer);
     this._historyTimer = window.setInterval(() => {
-      if (this._wide) this._requestHistory();
+      if (this._graphSize) this._requestHistory();
     }, HISTORY_REFRESH_MS);
     this._measure();
   }
@@ -1642,7 +1767,7 @@ export class TemperatureCard extends HTMLElement {
     const html = `
       <style>${STYLES}</style>
       <ha-card>
-        <div class="grid">${config.sensors.map((sensor) => renderCell(hass, sensor, config, this._wide)).join("")}</div>
+        <div class="grid">${config.sensors.map((sensor) => renderCell(hass, sensor, config, this._graphSize)).join("")}</div>
         <div class="build">${escapeHtml(TEMPERATURE_CARD_BUILD)}</div>
       </ha-card>
     `;
@@ -1683,8 +1808,8 @@ export class TemperatureCard extends HTMLElement {
     const html = group.items
       .map((item) =>
         item.kind === "sensor"
-          ? renderCell(hass, item.sensor, config, this._wide)
-          : renderRollUp(hass, item, groups, config, this._wide),
+          ? renderCell(hass, item.sensor, config, this._graphSize)
+          : renderRollUp(hass, item, groups, config, this._graphSize),
       )
       .join("");
     if (html === this._gridHtml) return;
@@ -1710,18 +1835,21 @@ export class TemperatureCard extends HTMLElement {
    */
   private _measure(): void {
     const cell = this.shadowRoot?.querySelector<HTMLElement>(".grid > .cell");
-    let wide = false;
+    let size: GraphSize | undefined;
     if (cell && this.isConnected) {
       const style = getComputedStyle(cell);
       const content = cell.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-      wide = content >= GRAPH_MIN_CELL_REM * rem;
+      if (content >= GRAPH_MIN_CELL_REM * rem) {
+        // Whole 4px steps, so small resizes do not re-render.
+        size = { plotWidth: Math.floor((content - (GRAPH_LEFT_REM + GRAPH_VALUES_REM) * rem) / 4) * 4, rem };
+      }
     }
-    if (wide !== this._wide) {
-      this._wide = wide;
+    if (size?.plotWidth !== this._graphSize?.plotWidth || size?.rem !== this._graphSize?.rem) {
+      this._graphSize = size;
       this._render();
     }
-    if (wide) this._requestHistory();
+    if (size) this._requestHistory();
   }
 
   /** Loads (or refreshes, when due) the history of the cells on show, then re-renders. */

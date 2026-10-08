@@ -64,12 +64,16 @@ configure.
   size). Narrower cells look exactly as they do without the graph. In
   practice: a one-column card about 550 px or wider, or two cells side by
   side on a card about 1,085 px or wider.
-- **What it shows:** one line with a light fill, a few faint guide lines
-  labelled with round temperatures, and no other chart decoration. The
-  vertical scale follows the sensor's own range over the 24 hours, with a
-  minimum span of 4 °F (about 2 °C) so a steady sensor's small wobble stays
-  small. The line uses the theme's primary color; the accent rail keeps
-  showing the current temperature band.
+- **What it shows:** one line on the plain cell background, up to four faint
+  guide lines labelled with round temperatures on the right (e.g. `60°
+  70° 80° 90°`), and local times underneath (e.g. `8 PM  4 AM  Now`, more
+  labels when there is room), in your Home Assistant language and 12/24-hour
+  setting. There is no other chart decoration. The vertical scale follows
+  the sensor's own range over the 24 hours, with a minimum span of 4 °F
+  (about 2 °C) so a steady sensor's small wobble stays small. The line uses
+  the theme's primary color; the accent rail keeps showing the current
+  temperature band. If a sensor was unavailable for a while, the line has a
+  gap there.
 - **Roll-ups:** the graph is the historical average of the same members,
   computed the same way as the current average. Readings are lined up on
   shared 5-minute intervals; each interval averages the members that had a

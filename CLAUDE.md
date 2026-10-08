@@ -52,7 +52,9 @@ Each cell's accent rail is colored from its current temperature with zero config
 - Roll-up graphs average the members per 5-minute bucket key (never by array index), converting units like the current average. The rail still shows the current average.
 - `historyCache` is module-level (shared by all cards), coalesces in-flight requests, and refreshes on a 5-minute timer per connected card. Live `hass` updates never fetch; tabs fetch only their own (wide) cells. Failures mean "no graph", never an error.
 - No YAML options for history (period, refresh, colors, visibility). Do not add any unless the user asks.
-- The line uses `--primary-color` (one quiet line, faint fill, up to three labelled guides at 1rem). Do not color it by temperature band.
+- The line uses `--primary-color` (one quiet line, no fill, up to four labelled guides on the right and local time labels underneath, all 1rem). Do not color it by temperature band.
+- Do not reintroduce an area fill under the line: fills are drawn per unbroken run, so a data gap (e.g. an integration outage, which real YoLink statistics have) leaves an unfilled strip that reads as a dark vertical band. The plot has no background of its own.
+- Axis labels are chosen in JS from the measured plot width (`GraphSize`): time labels are whole local hours every 8 h (12 h if narrow) with the best-spread phase, plus "Now"; labels that would overlap are dropped, never rotated or wrapped.
 
 ## Reference Project: yardian-card
 
