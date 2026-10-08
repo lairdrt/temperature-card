@@ -4,7 +4,7 @@
 
 This repository contains `temperature-card`, a custom Home Assistant Lovelace card for temperature sensors.
 
-The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.2.0-baseline` (see below; the earlier `v0.1.0-baseline` tag is kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, and a permanent build tag. Groups, averages, configurable color ranges, history, and a visual editor are not built. Do not describe or assume features that have not been built.
+The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.2.0-baseline` (see below; the earlier `v0.1.0-baseline` tag is kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, a permanent build tag, and optional ordered groups shown as tabs with roll-up average cells (added after `v0.2.0-baseline`, not yet tagged). Configurable color ranges, history, charts, and a visual editor are not built. Do not describe or assume features that have not been built.
 
 ## Known-Good Baseline: v0.2.0-baseline
 
@@ -23,6 +23,18 @@ The approved baseline includes, on top of `v0.1.0-baseline`:
 - no YAML configuration for temperature colors or ranges.
 
 Do not regress this baseline without an explicit request from the user.
+
+`v0.2.0-baseline` remains the known-good pre-groups baseline. The groups feature below is built on top of it and has not been tagged.
+
+## Groups, Tabs, and Roll-ups (implemented, not yet baselined)
+
+- Optional sensor `id` and optional top-level `groups:` (ordered list of `{id, name, items}`). An item is either a sensor id (rendered by the same cell renderer as legacy mode) or a roll-up `{name, average: [sensor ids], open_group?}`.
+- Roll-ups average only members with a numeric temperature; mixed units (°F/℉/°C/℃/K) are converted through °F and shown in HA's `unit_system.temperature` (fallback: first usable member's unit). Humidity averages members with usable humidity; no line if none. Roll-ups never show a battery. The rail uses the existing band classifier on the unrounded average.
+- `open_group` makes the roll-up a keyboard-accessible button that switches the active tab in place. It never navigates or touches browser history.
+- Navigation: tab strip (`role=tablist`, roving tabindex, Arrow/Home/End/Enter/Space), touch/pen swipe on the grid between adjacent groups (no wrap, horizontal dominance threshold, click suppression after a swipe), and roll-up clicks. A 150 ms slide/fade runs on switch, disabled under `prefers-reduced-motion`.
+- The active group is instance state only: it is NOT reset by `hass` updates, survives `setConfig` if its id still exists (otherwise the first group), and is not persisted. Do not add persistence or a default-tab option unless asked.
+- In grouped mode the card skeleton (tabs, panel, build tag) is built once per config; only the grid's HTML is replaced when it changes, so tab focus and tab-strip scroll survive updates. `hass` updates are skipped when no dependency entity state changed.
+- Legacy mode (no `groups`) must stay pixel-for-pixel identical to `v0.2.0-baseline`: same markup, and the stylesheet is the v0.2.0 stylesheet with grouped-mode rules only appended. Verify this when changing shared code or styles.
 
 ## Automatic Rail Colors (implemented)
 

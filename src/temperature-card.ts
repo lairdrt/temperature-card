@@ -45,6 +45,8 @@ interface HomeAssistant {
   /** The user's language and number-format preference (HA profile settings). */
   locale?: { language?: string; number_format?: string };
   language?: string;
+  /** HA's unit system; its temperature unit is used for mixed-unit roll-ups. */
+  config?: { unit_system?: { temperature?: string } };
 }
 
 /**
@@ -60,15 +62,32 @@ interface SensorConfig {
   battery_entity?: string;
   /** Optional display name; defaults to the temperature entity's friendly name. */
   name?: string;
+  /** Optional id, needed only when a group refers to this sensor. */
+  id?: string;
+}
+
+/** One cell of a group: a sensor, or a roll-up averaging several sensors. */
+type GroupItem =
+  | { kind: "sensor"; sensor: SensorConfig }
+  | { kind: "average"; name: string; members: SensorConfig[]; openGroup?: string };
+
+/** One tab: a named, ordered list of cells. */
+interface GroupConfig {
+  id: string;
+  name: string;
+  items: GroupItem[];
 }
 
 /**
  * Normalized configuration. The top-level single-sensor shorthand
  * (`entity:`) becomes a one-item `sensors` list, so there is only one
- * rendering path.
+ * rendering path for cells. Without `groups` every sensor is shown, as
+ * before; with them the card shows one group (tab) at a time.
  */
 interface TemperatureCardConfig {
   sensors: SensorConfig[];
+  /** Ordered groups (tabs), or undefined for the plain all-sensors grid. */
+  groups?: GroupConfig[];
   /** Decimals shown for temperatures (card-wide). */
   temperaturePrecision: number;
   /** Decimals shown for humidity (card-wide). */
@@ -133,6 +152,15 @@ const FROM_FAHRENHEIT: Record<string, (f: number) => number> = {
   "°C": (f) => ((f - 32) * 5) / 9,
   "℃": (f) => ((f - 32) * 5) / 9,
   K: (f) => ((f - 32) * 5) / 9 + 273.15,
+};
+
+/** The entity's unit -> °F (inverse of FROM_FAHRENHEIT), for mixed-unit roll-ups. */
+const TO_FAHRENHEIT: Record<string, (v: number) => number> = {
+  "°F": (v) => v,
+  "℉": (v) => v,
+  "°C": (v) => (v * 9) / 5 + 32,
+  "℃": (v) => (v * 9) / 5 + 32,
+  K: (v) => ((v - 273.15) * 9) / 5 + 32,
 };
 
 /**
@@ -440,6 +468,112 @@ const STYLES = `
       display: none;
     }
   }
+
+  /* Groups (only when 'groups' is configured; none of these selectors match
+     the plain all-sensors card). A quiet text tab strip above the grid: the
+     active tab is in the primary text colour with a short accent underline.
+     It scrolls sideways rather than wrapping. */
+  .grouped {
+    overflow-x: clip;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    margin: -4px 0 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    position: relative;
+    flex: none;
+    max-width: 85%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0;
+    padding: 6px 12px 9px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--secondary-text-color);
+    font: inherit;
+    font-size: 1.0625rem;
+    font-weight: min(var(--ha-font-weight-medium, 500), 600);
+    line-height: 1.25;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .tab::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 2px;
+    height: 2px;
+    border-radius: 1px;
+  }
+
+  .tab:hover,
+  .tab[aria-selected="true"] {
+    color: var(--primary-text-color);
+  }
+
+  .tab[aria-selected="true"]::after {
+    background: var(--primary-color, currentColor);
+  }
+
+  .tab:focus-visible,
+  .cell--link:focus-visible {
+    outline: 2px solid var(--primary-color, currentColor);
+    outline-offset: -2px;
+  }
+
+  /* Horizontal swipes on the grid switch groups; vertical scrolling stays
+     with the browser. */
+  .grouped .grid {
+    touch-action: pan-y;
+  }
+
+  .cell--link {
+    cursor: pointer;
+  }
+
+  @supports (background: color-mix(in srgb, currentColor 5%, transparent)) {
+    .cell--link:hover {
+      background: color-mix(in srgb, var(--primary-text-color, currentColor) 16%, transparent);
+    }
+  }
+
+  /* A short fade-and-slide when switching groups. */
+  .grid.switch-next {
+    animation: switch-next 150ms ease-out;
+  }
+
+  .grid.switch-prev {
+    animation: switch-prev 150ms ease-out;
+  }
+
+  @keyframes switch-next {
+    from { opacity: 0; transform: translateX(10px); }
+  }
+
+  @keyframes switch-prev {
+    from { opacity: 0; transform: translateX(-10px); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .grid.switch-next,
+    .grid.switch-prev {
+      animation: none;
+    }
+  }
 `;
 
 function escapeHtml(text: string): string {
@@ -506,10 +640,89 @@ function normalizeSensor(item: unknown, where: string): SensorConfig {
   const humidityEntity = entityField(raw, "humidity_entity", "humidity", where);
   const batteryEntity = textField(raw, "battery_entity", where);
   const name = textField(raw, "name", where);
+  const id = textField(raw, "id", where);
   if (humidityEntity) sensor.humidity_entity = humidityEntity;
   if (batteryEntity) sensor.battery_entity = batteryEntity;
   if (name) sensor.name = name;
+  if (id) sensor.id = id;
   return sensor;
+}
+
+/** Sensors by id; ids must be unique. */
+function sensorsById(sensors: SensorConfig[]): Map<string, SensorConfig> {
+  const byId = new Map<string, SensorConfig>();
+  sensors.forEach((sensor, index) => {
+    if (!sensor.id) return;
+    if (byId.has(sensor.id)) throw new Error(`sensors item ${index + 1}: duplicate id '${sensor.id}'.`);
+    byId.set(sensor.id, sensor);
+  });
+  return byId;
+}
+
+const ROLL_UP_KEYS = new Set(["name", "average", "open_group"]);
+
+function sensorRef(value: unknown, byId: Map<string, SensorConfig>, where: string): SensorConfig {
+  if (typeof value !== "string") throw new Error(`${where}: expected a sensor id, not ${describeType(value)}.`);
+  const id = value.trim();
+  if (id === "") throw new Error(`${where}: sensor id is empty.`);
+  const sensor = byId.get(id);
+  if (!sensor) throw new Error(`${where}: no sensor has id '${id}'.`);
+  return sensor;
+}
+
+/**
+ * One group item: a sensor id (that sensor's normal cell) or a roll-up
+ * mapping { name, average: [sensor ids], open_group? }.
+ */
+function normalizeGroupItem(item: unknown, byId: Map<string, SensorConfig>, where: string): GroupItem {
+  if (typeof item === "string") return { kind: "sensor", sensor: sensorRef(item, byId, where) };
+  if (!item || typeof item !== "object" || Array.isArray(item) || !("average" in item)) {
+    throw new Error(`${where}: expected a sensor id or a roll-up with 'name' and 'average'.`);
+  }
+  const raw = item as Record<string, unknown>;
+  const unknown = Object.keys(raw).find((key) => !ROLL_UP_KEYS.has(key));
+  if (unknown) throw new Error(`${where}: unknown key '${unknown}' (a roll-up has 'name', 'average' and optional 'open_group').`);
+  const name = textField(raw, "name", where);
+  if (!name) throw new Error(`${where}: a roll-up needs a 'name'.`);
+  if (!Array.isArray(raw.average) || raw.average.length === 0) {
+    throw new Error(`${where}: 'average' must be a non-empty list of sensor ids.`);
+  }
+  const members = raw.average.map((ref, index) => sensorRef(ref, byId, `${where} average item ${index + 1}`));
+  const openGroup = textField(raw, "open_group", where);
+  return openGroup ? { kind: "average", name, members, openGroup } : { kind: "average", name, members };
+}
+
+/** The `groups` list: ordered tabs, each with ordered items. */
+function normalizeGroups(value: unknown, sensors: SensorConfig[]): GroupConfig[] {
+  if (!Array.isArray(value)) throw new Error("'groups' must be a list of groups.");
+  if (value.length === 0) throw new Error("'groups' must contain at least one group.");
+  const byId = sensorsById(sensors);
+  const groupWhere = new Map<string, string>();
+  const groups = value.map((item, index): GroupConfig => {
+    let where = `groups item ${index + 1}`;
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`${where}: each group must be a mapping with 'id', 'name' and 'items'.`);
+    }
+    const raw = item as Record<string, unknown>;
+    const id = textField(raw, "id", where);
+    if (!id) throw new Error(`${where}: 'id' is required.`);
+    if (groupWhere.has(id)) throw new Error(`${where}: duplicate group id '${id}' (also ${groupWhere.get(id)}).`);
+    groupWhere.set(id, where);
+    where = `group '${id}'`;
+    const name = textField(raw, "name", where);
+    if (!name) throw new Error(`${where}: 'name' is required.`);
+    if (!Array.isArray(raw.items) || raw.items.length === 0) throw new Error(`${where}: 'items' must be a non-empty list.`);
+    const items = raw.items.map((entry, itemIndex) => normalizeGroupItem(entry, byId, `${where} item ${itemIndex + 1}`));
+    return { id, name, items };
+  });
+  for (const group of groups) {
+    group.items.forEach((item, index) => {
+      if (item.kind === "average" && item.openGroup && !groupWhere.has(item.openGroup)) {
+        throw new Error(`group '${group.id}' item ${index + 1}: open_group '${item.openGroup}' is not a group id.`);
+      }
+    });
+  }
+  return groups;
 }
 
 /**
@@ -533,9 +746,15 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
     if (!Array.isArray(raw.sensors) || raw.sensors.length === 0) {
       throw new Error("'sensors' must be a list with at least one sensor, each with a 'temp_entity'.");
     }
-    return { sensors: raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`)), ...precision };
+    const sensors = raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`));
+    sensorsById(sensors);
+    if (raw.groups === undefined || raw.groups === null) return { sensors, ...precision };
+    return { sensors, groups: normalizeGroups(raw.groups, sensors), ...precision };
   }
 
+  if (raw.groups !== undefined && raw.groups !== null) {
+    throw new Error("'groups' needs a 'sensors' list whose sensors have ids.");
+  }
   if (typeof raw.entity !== "string" || raw.entity.trim() === "") throw new Error(USAGE);
   return { sensors: [{ temp_entity: raw.entity.trim() }], ...precision };
 }
@@ -652,8 +871,11 @@ function renderTemperature(hass: HomeAssistant, stateObj: HassEntity | undefined
 
 function renderHumidity(hass: HomeAssistant, entity: string | undefined, digits: number): string {
   if (!entity) return "";
+  return renderHumidityState(hass, hass.states[entity], digits);
+}
 
-  const stateObj = hass.states[entity];
+/** The humidity line for a state object (an entity's, or a roll-up's average). */
+function renderHumidityState(hass: HomeAssistant, stateObj: HassEntity | undefined, digits: number): string {
   const label = stateObj ? NO_HUMIDITY_READING_LABELS[stateObj.state] : "Humidity sensor not found";
   if (!stateObj || label) {
     // No reading: a placeholder in the value's place, with the reason in
@@ -733,44 +955,199 @@ function renderBattery(hass: HomeAssistant, entity: string | undefined): string 
   `;
 }
 
-function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig): string {
-  const stateObj = hass.states[sensor.temp_entity];
-  const name = sensor.name || stateObj?.attributes.friendly_name || sensor.temp_entity;
-  const humidity = renderHumidity(hass, sensor.humidity_entity, config.humidityPrecision);
+/** What one cell shows; sensor cells and roll-up cells both render from this. */
+interface CellContent {
+  name: string;
+  /** Temperature state: an entity's, or a roll-up's computed average. */
+  temperature: HassEntity | undefined;
+  /** Humidity line markup ("" for none). */
+  humidityHtml: string;
+  hasHumidity: boolean;
+  batteryEntity?: string;
+  /** Extra classes / attributes on the cell (roll-up navigation). */
+  classes?: string;
+  attrs?: string;
+}
+
+function renderCellContent(hass: HomeAssistant, cell: CellContent, config: TemperatureCardConfig): string {
   // Without a battery the cell is unchanged. With one, humidity (if any)
   // and the battery share a bottom tier: humidity left, battery right.
-  const lower = sensor.battery_entity
-    ? `<div class="lower${sensor.humidity_entity ? "" : " lower--battery-only"}">${humidity}${renderBattery(hass, sensor.battery_entity)}</div>`
-    : humidity;
+  const lower = cell.batteryEntity
+    ? `<div class="lower${cell.hasHumidity ? "" : " lower--battery-only"}">${cell.humidityHtml}${renderBattery(hass, cell.batteryEntity)}</div>`
+    : cell.humidityHtml;
   // The rail reads --temperature-card-accent; setting it on the cell gives
   // that cell's rail its temperature colour. No band: the theme's accent.
-  const band = temperatureState(stateObj);
+  const band = temperatureState(cell.temperature);
   const bandAttrs = band
     ? ` data-temperature-state="${band}" style="--temperature-card-accent: ${TEMPERATURE_STATE_COLORS[band]}"`
     : "";
   return `
-    <div class="cell"${bandAttrs}>
+    <div class="cell${cell.classes ?? ""}"${cell.attrs ?? ""}${bandAttrs}>
       <span class="accent" aria-hidden="true"></span>
-      <div class="name">${escapeHtml(name)}</div>
-      ${renderTemperature(hass, stateObj, config.temperaturePrecision)}
+      <div class="name">${escapeHtml(cell.name)}</div>
+      ${renderTemperature(hass, cell.temperature, config.temperaturePrecision)}
       ${lower}
     </div>
   `;
 }
 
+function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig): string {
+  const stateObj = hass.states[sensor.temp_entity];
+  return renderCellContent(
+    hass,
+    {
+      name: sensor.name || stateObj?.attributes.friendly_name || sensor.temp_entity,
+      temperature: stateObj,
+      humidityHtml: renderHumidity(hass, sensor.humidity_entity, config.humidityPrecision),
+      hasHumidity: Boolean(sensor.humidity_entity),
+      batteryEntity: sensor.battery_entity,
+    },
+    config,
+  );
+}
+
+/** Usable members' readings: numeric states, and (for temperature) a known unit. */
+function numericReadings(hass: HomeAssistant, entities: string[]): Array<{ value: number; unit: string }> {
+  const readings: Array<{ value: number; unit: string }> = [];
+  for (const entity of entities) {
+    const stateObj = hass.states[entity];
+    if (!stateObj || stateObj.state.trim() === "") continue;
+    const value = Number(stateObj.state);
+    if (Number.isFinite(value)) readings.push({ value, unit: String(stateObj.attributes.unit_of_measurement ?? "").trim() });
+  }
+  return readings;
+}
+
+/**
+ * A roll-up's average temperature as a synthetic state object, so it is
+ * formatted and classified exactly like a sensor's. Members without a usable
+ * reading (missing, unavailable, non-numeric, unknown unit) are left out.
+ * If all members share a unit, that unit is averaged directly; otherwise
+ * each is converted and the average is shown in HA's temperature unit (or,
+ * failing that, the first usable member's unit).
+ */
+function averageTemperature(hass: HomeAssistant, members: SensorConfig[]): HassEntity {
+  const readings = numericReadings(hass, members.map((m) => m.temp_entity)).filter((r) => TO_FAHRENHEIT[r.unit]);
+  const base = { entity_id: "sensor.temperature_card_average" };
+  if (readings.length === 0) return { ...base, state: "unavailable", attributes: {} };
+
+  const units = new Set(readings.map((r) => r.unit));
+  let unit = readings[0].unit;
+  let mean: number;
+  if (units.size === 1) {
+    mean = readings.reduce((sum, r) => sum + r.value, 0) / readings.length;
+  } else {
+    const haUnit = String(hass.config?.unit_system?.temperature ?? "").trim();
+    if (FROM_FAHRENHEIT[haUnit]) unit = haUnit;
+    const meanF = readings.reduce((sum, r) => sum + TO_FAHRENHEIT[r.unit](r.value), 0) / readings.length;
+    mean = FROM_FAHRENHEIT[unit](meanF);
+  }
+  return { ...base, state: String(mean), attributes: { unit_of_measurement: unit, device_class: "temperature" } };
+}
+
+/**
+ * A roll-up's average humidity over members that have a humidity entity
+ * with a numeric reading, or undefined if there is none (no humidity line).
+ */
+function averageHumidity(hass: HomeAssistant, members: SensorConfig[]): HassEntity | undefined {
+  const entities = members.flatMap((m) => (m.humidity_entity ? [m.humidity_entity] : []));
+  const readings = numericReadings(hass, entities);
+  if (readings.length === 0) return undefined;
+  const mean = readings.reduce((sum, r) => sum + r.value, 0) / readings.length;
+  return {
+    entity_id: "sensor.temperature_card_average_humidity",
+    state: String(mean),
+    attributes: { unit_of_measurement: readings[0].unit || "%", device_class: "humidity" },
+  };
+}
+
+/**
+ * A roll-up cell: a normal-looking cell with the members' average
+ * temperature and humidity, never a battery. With open_group it is a
+ * button that opens that group.
+ */
+function renderRollUp(
+  hass: HomeAssistant,
+  item: Extract<GroupItem, { kind: "average" }>,
+  groups: GroupConfig[],
+  config: TemperatureCardConfig,
+): string {
+  const temperature = averageTemperature(hass, item.members);
+  const humidity = averageHumidity(hass, item.members);
+  const target = item.openGroup ? groups.find((g) => g.id === item.openGroup) : undefined;
+  // A button's label replaces its content for screen readers, so it carries
+  // the readings as well as what activating it does.
+  const reading = temperature.state === "unavailable" ? "Unavailable" : formattedText(hass, temperature, config.temperaturePrecision);
+  const humidityText = humidity ? `, humidity ${formattedText(hass, humidity, config.humidityPrecision)}` : "";
+  const label = target ? `${item.name}, ${reading}${humidityText}. Opens ${target.name}.` : "";
+  return renderCellContent(
+    hass,
+    {
+      name: item.name,
+      temperature,
+      humidityHtml: humidity ? renderHumidityState(hass, humidity, config.humidityPrecision) : "",
+      hasHumidity: Boolean(humidity),
+      classes: target ? " cell--rollup cell--link" : " cell--rollup",
+      attrs: target
+        ? ` role="button" tabindex="0" data-open-group="${escapeHtml(target.id)}" title="${escapeHtml(`Open ${target.name}`)}" aria-label="${escapeHtml(label)}"`
+        : "",
+    },
+    config,
+  );
+}
+
+/** Every entity the card reads, so unrelated HA updates can be skipped. */
+function dependencies(config: TemperatureCardConfig): string[] {
+  const ids = new Set<string>();
+  for (const sensor of config.sensors) {
+    ids.add(sensor.temp_entity);
+    if (sensor.humidity_entity) ids.add(sensor.humidity_entity);
+    if (sensor.battery_entity) ids.add(sensor.battery_entity);
+  }
+  return [...ids];
+}
+
+/** A swipe must move at least this far sideways, and mostly sideways. */
+const SWIPE_MIN_PX = 50;
+const SWIPE_HORIZONTAL_RATIO = 1.5;
+/** After a swipe, ignore the click some browsers still deliver. */
+const SWIPE_CLICK_GUARD_MS = 400;
+
 export class TemperatureCard extends HTMLElement {
   private _config?: TemperatureCardConfig;
   private _hass?: HomeAssistant;
+  /** Every entity the configuration reads (see dependencies()). */
+  private _dependencies: string[] = [];
   /**
-   * Last markup written. The markup depends only on the configured
-   * entities, so an unrelated HA state change produces identical markup
-   * and the DOM is left alone.
+   * Last markup written (plain mode). The markup depends only on the
+   * configured entities, so an unrelated HA state change produces identical
+   * markup and the DOM is left alone.
    */
   private _renderedHtml?: string;
+  /**
+   * Grouped mode: the group on show. Only tabs, swipes and roll-ups change
+   * it; HA state updates never do. A new config keeps it if it still exists.
+   */
+  private _activeGroupId?: string;
+  /** Grouped mode: the config the tab strip was built for, and the grid's last markup. */
+  private _builtFor?: TemperatureCardConfig;
+  private _gridHtml?: string;
+  private _swipe?: { pointerId: number; x: number; y: number };
+  private _ignoreClicksUntil = 0;
+  private _switchTimer?: number;
 
   constructor() {
     super();
-    this.attachShadow({ mode: "open" });
+    const root = this.attachShadow({ mode: "open" });
+    // Delegated once: these keep working across every re-render.
+    root.addEventListener("click", (event) => this._onClick(event as MouseEvent));
+    root.addEventListener("keydown", (event) => this._onKeyDown(event as KeyboardEvent));
+    root.addEventListener("pointerdown", (event) => this._onPointerDown(event as PointerEvent));
+    root.addEventListener("pointerup", (event) => this._onPointerUp(event as PointerEvent));
+    root.addEventListener("pointercancel", () => (this._swipe = undefined));
+    root.addEventListener("animationend", (event) =>
+      (event.target as Element).classList?.remove("switch-next", "switch-prev"),
+    );
   }
 
   /**
@@ -778,12 +1155,18 @@ export class TemperatureCard extends HTMLElement {
    * catches it and shows its own error card with this message.
    */
   setConfig(config: unknown): void {
-    this._config = normalizeConfig(config);
+    const next = normalizeConfig(config);
+    this._config = next;
+    this._dependencies = dependencies(next);
+    if (!next.groups) this._activeGroupId = undefined;
+    else if (!next.groups.some((group) => group.id === this._activeGroupId)) this._activeGroupId = next.groups[0].id;
     this._render();
   }
 
   set hass(hass: HomeAssistant) {
+    const previous = this._hass;
     this._hass = hass;
+    if (previous && this._nothingChanged(previous, hass)) return;
     this._render();
   }
 
@@ -796,13 +1179,33 @@ export class TemperatureCard extends HTMLElement {
    * since masonry columns are usually narrower than two cells need.
    */
   getCardSize(): number {
+    const groups = this._config?.groups;
+    if (groups) return 1 + 3 * Math.max(...groups.map((group) => group.items.length));
     return 3 * (this._config?.sensors.length ?? 1);
+  }
+
+  /** True when no configured entity (or formatting input) differs between two hass objects. */
+  private _nothingChanged(previous: HomeAssistant, next: HomeAssistant): boolean {
+    if (
+      previous.formatEntityStateToParts !== next.formatEntityStateToParts ||
+      previous.locale !== next.locale ||
+      previous.language !== next.language ||
+      previous.config !== next.config
+    ) {
+      return false;
+    }
+    return this._dependencies.every((id) => previous.states[id] === next.states[id]);
   }
 
   private _render(): void {
     const root = this.shadowRoot;
     if (!root || !this._config || !this._hass) return;
+    if (this._config.groups) {
+      this._renderGrouped(root, this._config, this._config.groups, this._hass);
+      return;
+    }
 
+    this._builtFor = undefined;
     const hass = this._hass;
     const config = this._config;
     const html = `
@@ -815,6 +1218,160 @@ export class TemperatureCard extends HTMLElement {
     if (html === this._renderedHtml) return;
     this._renderedHtml = html;
     root.innerHTML = html;
+  }
+
+  /**
+   * Grouped mode: the tab strip is built once per config; afterwards only
+   * the grid's contents are replaced, so tab focus and scroll position
+   * survive HA updates.
+   */
+  private _renderGrouped(root: ShadowRoot, config: TemperatureCardConfig, groups: GroupConfig[], hass: HomeAssistant): void {
+    if (this._builtFor !== config) {
+      this._builtFor = config;
+      this._renderedHtml = undefined;
+      this._gridHtml = undefined;
+      const tabs = groups
+        .map(
+          (group, index) =>
+            `<button class="tab" type="button" role="tab" id="tab-${index}" aria-controls="panel" aria-selected="false" tabindex="-1" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</button>`,
+        )
+        .join("");
+      root.innerHTML = `
+        <style>${STYLES}</style>
+        <ha-card class="grouped">
+          <div class="tabs" role="tablist" aria-label="Sensor groups">${tabs}</div>
+          <div class="grid" id="panel" role="tabpanel"></div>
+          <div class="build">${escapeHtml(TEMPERATURE_CARD_BUILD)}</div>
+        </ha-card>
+      `;
+      this._syncTabs();
+    }
+
+    const group = groups.find((g) => g.id === this._activeGroupId) ?? groups[0];
+    const html = group.items
+      .map((item) => (item.kind === "sensor" ? renderCell(hass, item.sensor, config) : renderRollUp(hass, item, groups, config)))
+      .join("");
+    if (html === this._gridHtml) return;
+    this._gridHtml = html;
+    const grid = root.querySelector(".grid");
+    if (grid) grid.innerHTML = html;
+  }
+
+  private _activeIndex(): number {
+    return Math.max(0, this._config?.groups?.findIndex((group) => group.id === this._activeGroupId) ?? 0);
+  }
+
+  /** Marks the active tab (and roving tabindex) and scrolls it into view within the strip. */
+  private _syncTabs(): void {
+    const root = this.shadowRoot;
+    const strip = root?.querySelector<HTMLElement>(".tabs");
+    if (!root || !strip) return;
+    const active = this._activeIndex();
+    const tabs = [...strip.querySelectorAll<HTMLElement>(".tab")];
+    tabs.forEach((tab, index) => {
+      tab.setAttribute("aria-selected", String(index === active));
+      tab.tabIndex = index === active ? 0 : -1;
+    });
+    root.querySelector(".grid")?.setAttribute("aria-labelledby", `tab-${active}`);
+    const tab = tabs[active];
+    if (!tab) return;
+    // Scroll the strip only (scrollIntoView could also scroll the page).
+    // Prefer showing the start of the label if it cannot all fit.
+    const s = strip.getBoundingClientRect();
+    const t = tab.getBoundingClientRect();
+    if (t.left < s.left || t.width > s.width) strip.scrollLeft -= s.left - t.left;
+    else if (t.right > s.right) strip.scrollLeft += t.right - s.right;
+  }
+
+  /** Shows group `index`; `focusTab` moves keyboard focus to its tab. */
+  private _selectGroup(index: number, focusTab = false): void {
+    const groups = this._config?.groups;
+    const group = groups?.[index];
+    if (!groups || !group) return;
+    const previous = this._activeIndex();
+    if (group.id !== this._activeGroupId) {
+      this._activeGroupId = group.id;
+      this._syncTabs();
+      this._render();
+      const grid = this.shadowRoot?.querySelector<HTMLElement>(".grid");
+      if (grid) {
+        grid.classList.remove("switch-next", "switch-prev");
+        void grid.offsetWidth; // restart the animation
+        grid.classList.add(index > previous ? "switch-next" : "switch-prev");
+        // Also cleared on animationend; this covers reduced motion, where
+        // there is no animation and so no animationend.
+        window.clearTimeout(this._switchTimer);
+        this._switchTimer = window.setTimeout(() => grid.classList.remove("switch-next", "switch-prev"), 200);
+      }
+    }
+    if (focusTab) this.shadowRoot?.querySelector<HTMLElement>(`#tab-${index}`)?.focus();
+  }
+
+  private _openGroup(id: string | undefined, focusTab = false): void {
+    const index = this._config?.groups?.findIndex((group) => group.id === id) ?? -1;
+    if (index >= 0) this._selectGroup(index, focusTab);
+  }
+
+  private _onClick(event: MouseEvent): void {
+    if (!this._config?.groups) return;
+    const target = event.target as Element | null;
+    const tab = target?.closest<HTMLElement>(".tab");
+    if (tab) {
+      this._selectGroup(Number(tab.id.slice(4)));
+      return;
+    }
+    // A swipe that ends on a roll-up must not also open its group.
+    if (performance.now() < this._ignoreClicksUntil) return;
+    const link = target?.closest<HTMLElement>(".cell--link");
+    if (link) this._openGroup(link.dataset.openGroup);
+  }
+
+  private _onKeyDown(event: KeyboardEvent): void {
+    const groups = this._config?.groups;
+    const target = event.target as Element | null;
+    if (!groups || !target) return;
+    const tab = target.closest<HTMLElement>(".tab");
+    if (tab) {
+      const current = Number(tab.id.slice(4));
+      const last = groups.length - 1;
+      const next =
+        event.key === "ArrowRight" ? (current === last ? 0 : current + 1)
+        : event.key === "ArrowLeft" ? (current === 0 ? last : current - 1)
+        : event.key === "Home" ? 0
+        : event.key === "End" ? last
+        : event.key === "Enter" || event.key === " " ? current
+        : undefined;
+      if (next === undefined) return;
+      event.preventDefault();
+      this._selectGroup(next, true);
+      return;
+    }
+    const link = target.closest<HTMLElement>(".cell--link");
+    if (link && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      this._openGroup(link.dataset.openGroup, true);
+    }
+  }
+
+  /** Swipes: touch or pen gestures that start on the grid. */
+  private _onPointerDown(event: PointerEvent): void {
+    if (!this._config?.groups || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
+    if (!(event.target as Element | null)?.closest?.(".grid")) return;
+    this._swipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+  }
+
+  private _onPointerUp(event: PointerEvent): void {
+    const start = this._swipe;
+    this._swipe = undefined;
+    const groups = this._config?.groups;
+    if (!start || !groups || start.pointerId !== event.pointerId) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < SWIPE_HORIZONTAL_RATIO * Math.abs(dy)) return;
+    const next = this._activeIndex() + (dx < 0 ? 1 : -1);
+    if (next < 0 || next >= groups.length) return;
+    this._ignoreClicksUntil = performance.now() + SWIPE_CLICK_GUARD_MS;
+    this._selectGroup(next);
   }
 }
 
