@@ -4,7 +4,25 @@
 
 This repository contains `temperature-card`, a custom Home Assistant Lovelace card for temperature sensors.
 
-The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The known-good baseline is tagged `v0.1.0-baseline`. The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, and a permanent build tag. Groups, averages, configurable color ranges, history, and a visual editor are not built. Do not describe or assume features that have not been built.
+The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.2.0-baseline` (see below; the earlier `v0.1.0-baseline` tag is kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, and a permanent build tag. Groups, averages, configurable color ranges, history, and a visual editor are not built. Do not describe or assume features that have not been built.
+
+## Known-Good Baseline: v0.2.0-baseline
+
+- Current known-good baseline: `v0.2.0-baseline`
+- Source feature commit: `df1af79fef16d7bd4d610dec1722470c0e0a45e4`
+- Deployed build at time of approval: `TEMPERATURE df1af79-a844fb` (visually approved in real Home Assistant, Graphite E-ink Dark)
+
+The approved baseline includes, on top of `v0.1.0-baseline`:
+
+- larger responsive sensor names;
+- humidity shown as the percentage only;
+- responsive bottom-right battery indication (optional `battery_entity`);
+- automatic, zero-config temperature colors on the accent rail. The rail color is the ONLY visual element affected by the temperature bands;
+- fixed temperature bands (`min <= value < max`): < 32 °F freezing; 32 to < 50 °F cold; 50 to < 65 °F cool; 65 to < 78 °F normal; 78 to < 90 °F warm; >= 90 °F hot;
+- the same physical thresholds applied to °C and K readings;
+- no YAML configuration for temperature colors or ranges.
+
+Do not regress this baseline without an explicit request from the user.
 
 ## Automatic Rail Colors (implemented)
 
