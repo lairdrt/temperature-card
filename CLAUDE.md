@@ -4,11 +4,15 @@
 
 This repository contains `temperature-card`, a custom Home Assistant Lovelace card for temperature sensors.
 
-The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current state is the known-good baseline tagged `v0.1.0-baseline`: a responsive grid of sensor cells (name, temperature, optional humidity), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` configuration with legacy compatibility, theme-derived panels with an accent rail, and a permanent build tag. Groups, averages, color ranges, history, and a visual editor are not built. Do not describe or assume features that have not been built.
+The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The known-good baseline is tagged `v0.1.0-baseline`. The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, and a permanent build tag. Groups, averages, configurable color ranges, history, and a visual editor are not built. Do not describe or assume features that have not been built.
 
-## Next Feature (planned, not built)
+## Automatic Rail Colors (implemented)
 
-Configurable temperature ranges using the existing accent rail: each cell's rail color is set through `--temperature-card-accent`. Agreed range rule: a reading belongs to a range when `min <= value < max`. The range configuration schema is not defined yet; design it in that pass.
+Each cell's accent rail is colored from its current temperature with zero configuration. The six bands (freezing < 32 °F <= cold < 50 °F <= cool < 65 °F <= normal < 78 °F <= warm < 90 °F <= hot; rule `min <= value < max`) and their six colors are intentionally internal constants (`TEMPERATURE_THRESHOLDS_F`, `TEMPERATURE_STATE_COLORS` in `src/temperature-card.ts`). Readings in °C/K are compared against the same physical temperatures; unusable readings or unknown units keep the neutral theme accent.
+
+- Do not add range configuration (YAML thresholds, colors, profiles) casually; only if the user explicitly asks for it.
+- Only the rail is colored. Do not color the temperature text, panel, humidity, or battery by temperature unless the user explicitly changes the design.
+- The colors are tuned for the rail being drawn at 70% over the cell surface, and checked on Graphite E-ink Dark, HA dark/light, and Frosted Glass Dark. Re-check all four if they change.
 
 ## Reference Project: yardian-card
 
@@ -57,7 +61,7 @@ Full theme awareness is required.
 - Don't rely on a single theme variable for visible separation: themes often define variables that are present but weak (identical card/page backgrounds, faint dividers), and `var()` fallbacks only cover undefined variables. Derive surfaces and outlines from theme variables with `color-mix()` (anchored to the text color, which every usable theme contrasts with its surfaces), with a plain-variable fallback for browsers without it.
 - Check visual changes against real installed themes (`Z:\themes`, read-only), including Graphite E-ink Dark, not just HA's defaults. Judge them from real rendered screenshots (including HA's panel-view layout), not contrast numbers alone.
 - Cell design: a sensor cell is a panel defined by its surface (a tint of the text color), not by a full outline, plus one accent rail. Don't reintroduce visible outlines or tune border contrast to fix separation.
-- The accent rail's color is controlled only by the cell-level custom property `--temperature-card-accent`, which the card reads but never declares (default: the theme's `--primary-color`). Future temperature-range coloring sets that property per cell; don't color the rail any other way.
+- The accent rail's color is controlled only by the cell-level custom property `--temperature-card-accent`, which the card's CSS reads but never declares (default: the theme's `--primary-color`). Automatic temperature coloring sets that property inline on each classified cell; don't color the rail any other way.
 - Text weights follow the theme's `--ha-font-weight-*` variables but are capped at 600, because some themes (Graphite E-ink: 900) make large numerals blocky.
 
 ## Readability and Accessibility (hard requirement)

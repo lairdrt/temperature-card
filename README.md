@@ -3,8 +3,8 @@
 A custom Home Assistant Lovelace card for temperature sensors.
 
 The goal is a compact, readable, theme-aware temperature dashboard card.
-**This project is in early development.** Groups, averages, color ranges,
-history, and a visual editor are not built yet.
+**This project is in early development.** Groups, averages, configurable
+color ranges, history, and a visual editor are not built yet.
 
 ## What it does today
 
@@ -20,22 +20,41 @@ history, and a visual editor are not built yet.
   Assistant number format and with the entity's unit.
 - Shows "Unavailable", "No reading", or "Entity not found" (and the humidity
   equivalents) instead of a value when there is nothing to show.
-- Takes all colors from the active Home Assistant theme and uses Home
+- Takes its colors from the active Home Assistant theme and uses Home
   Assistant's font. Each sensor is a softly tinted panel with a thin accent
-  rail in the theme's accent color, so cells stay clearly separated even in
-  themes whose card and background colors are identical (for example
-  Graphite E-ink Dark).
+  rail, so cells stay clearly separated even in themes whose card and
+  background colors are identical (for example Graphite E-ink Dark).
+- Colors each sensor's accent rail by its current temperature (see below).
+
+## Accent rail color
+
+The thin rail on the left of each sensor is colored automatically from the
+current temperature. Nothing needs configuring: the bands and colors are
+built in.
+
+| Temperature | Rail |
+| --- | --- |
+| below 32 °F | freezing: ice blue |
+| 32 °F to below 50 °F | cold: blue |
+| 50 °F to below 65 °F | cool: teal |
+| 65 °F to below 78 °F | normal: green |
+| 78 °F to below 90 °F | warm: amber |
+| 90 °F and above | hot: red |
+
+Celsius (and kelvin) sensors are classified at the same physical
+temperatures, e.g. 0 °C is "cold" and 25.6 °C is "warm". If a sensor has no
+usable reading or an unrecognized unit, its rail keeps the theme's accent
+color. Only the rail changes; the temperature text and everything else stay
+in the theme's colors.
 
 ## Status
 
 `v0.1.0-baseline` is the known-good baseline before temperature-range
 coloring: responsive multi-sensor grid, optional humidity, card-wide
 precision options, `temp_entity` / `humidity_entity` configuration,
-theme-derived panels with an accent rail, and the visible build tag.
-
-Next planned feature (not built yet): configurable temperature ranges that
-color each sensor's accent rail. A reading belongs to a range when
-`min <= value < max`.
+theme-derived panels with an accent rail, and the visible build tag. Since
+then: battery indicators, larger names, percentage-only humidity, and
+automatic rail colors.
 
 ## Examples
 

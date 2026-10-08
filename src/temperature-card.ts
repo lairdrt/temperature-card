@@ -91,6 +91,65 @@ const NO_HUMIDITY_READING_LABELS: Record<string, string> = {
 };
 
 /**
+ * Automatic accent-rail colouring. Deliberately opinionated internal
+ * constants, not configuration: each cell's rail takes the colour of the
+ * band its current temperature falls in, using min <= value < max. Bands
+ * are defined in °F; readings in other units are compared against the
+ * same physical temperatures (see temperatureState).
+ */
+type TemperatureState = "freezing" | "cold" | "cool" | "normal" | "warm" | "hot";
+
+/** Upper bound (°F, exclusive) of each band, coldest first. */
+const TEMPERATURE_THRESHOLDS_F: ReadonlyArray<{ below: number; state: TemperatureState }> = [
+  { below: 32, state: "freezing" },
+  { below: 50, state: "cold" },
+  { below: 65, state: "cool" },
+  { below: 78, state: "normal" },
+  { below: 90, state: "warm" },
+  { below: Infinity, state: "hot" },
+];
+
+/**
+ * Rail colours. Fixed (not theme variables) because this is data
+ * visualisation: themes such as Graphite E-ink map HA's semantic colours to
+ * near-identical greys. Mid-tone, not neon, and separated by hue as well as
+ * lightness (ice blue, blue, cyan-teal, green, amber, red) so neighbouring
+ * bands stay distinct on both dark and light cells. Tuned for the rail
+ * being drawn at 70% over the cell surface.
+ */
+const TEMPERATURE_STATE_COLORS: Record<TemperatureState, string> = {
+  freezing: "#7dccf2",
+  cold: "#6290f2",
+  cool: "#19b0c4",
+  normal: "#4fb66a",
+  warm: "#eb9a30",
+  hot: "#f25a52",
+};
+
+/** °F <-> the entity's unit, for the units HA uses for temperature. */
+const FROM_FAHRENHEIT: Record<string, (f: number) => number> = {
+  "°F": (f) => f,
+  "℉": (f) => f,
+  "°C": (f) => ((f - 32) * 5) / 9,
+  "℃": (f) => ((f - 32) * 5) / 9,
+  K: (f) => ((f - 32) * 5) / 9 + 273.15,
+};
+
+/**
+ * The band for a temperature state, or undefined when there is no usable
+ * reading (missing, unavailable, non-numeric) or the unit is not a known
+ * temperature unit. The raw, unrounded state is compared against the band
+ * limits converted into the entity's own unit.
+ */
+function temperatureState(stateObj: HassEntity | undefined): TemperatureState | undefined {
+  if (!stateObj || stateObj.state.trim() === "") return undefined;
+  const value = Number(stateObj.state);
+  const fromF = FROM_FAHRENHEIT[String(stateObj.attributes.unit_of_measurement ?? "").trim()];
+  if (!Number.isFinite(value) || !fromF) return undefined;
+  return TEMPERATURE_THRESHOLDS_F.find((band) => value < fromF(band.below))?.state;
+}
+
+/**
  * Colors come only from Home Assistant theme variables, with no literal
  * fallbacks. ha-card supplies the themed background and primary text
  * color, which names and values inherit. If --secondary-text-color were
@@ -683,8 +742,14 @@ function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: Temperatu
   const lower = sensor.battery_entity
     ? `<div class="lower${sensor.humidity_entity ? "" : " lower--battery-only"}">${humidity}${renderBattery(hass, sensor.battery_entity)}</div>`
     : humidity;
+  // The rail reads --temperature-card-accent; setting it on the cell gives
+  // that cell's rail its temperature colour. No band: the theme's accent.
+  const band = temperatureState(stateObj);
+  const bandAttrs = band
+    ? ` data-temperature-state="${band}" style="--temperature-card-accent: ${TEMPERATURE_STATE_COLORS[band]}"`
+    : "";
   return `
-    <div class="cell">
+    <div class="cell"${bandAttrs}>
       <span class="accent" aria-hidden="true"></span>
       <div class="name">${escapeHtml(name)}</div>
       ${renderTemperature(hass, stateObj, config.temperaturePrecision)}
