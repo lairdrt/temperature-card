@@ -54,6 +54,13 @@ Use either `entity` or `sensors`, not both.
 | --- | --- |
 | `entity` | One temperature entity. Shorthand for a one-item `sensors` list. |
 | `sensors` | List of sensors, shown in this order. |
+| `temperature_precision` | Decimals shown for every temperature on the card: a whole number from 0 to 3. Default `1` (e.g. `77.5 °F`). |
+| `humidity_precision` | Decimals shown for every humidity on the card: a whole number from 0 to 3. Default `0` (e.g. `52% humidity`). |
+
+The precision options apply to the whole card and take the place of each
+entity's display precision setting in Home Assistant. Numbers still use your
+Home Assistant number format (decimal separator and grouping) and the
+entity's unit.
 
 Each item in `sensors`:
 

@@ -42,6 +42,9 @@ interface HomeAssistant {
    * not provide it; the card then falls back to the raw state.
    */
   formatEntityStateToParts?: (stateObj: HassEntity) => ValuePart[];
+  /** The user's language and number-format preference (HA profile settings). */
+  locale?: { language?: string; number_format?: string };
+  language?: string;
 }
 
 /**
@@ -64,7 +67,15 @@ interface SensorConfig {
  */
 interface TemperatureCardConfig {
   sensors: SensorConfig[];
+  /** Decimals shown for temperatures (card-wide). */
+  temperaturePrecision: number;
+  /** Decimals shown for humidity (card-wide). */
+  humidityPrecision: number;
 }
+
+const DEFAULT_TEMPERATURE_PRECISION = 1;
+const DEFAULT_HUMIDITY_PRECISION = 0;
+const MAX_PRECISION = 3;
 
 /** States that mean "there is no reading", with the text shown for each. */
 const NO_READING_LABELS: Record<string, string> = {
@@ -243,14 +254,14 @@ const STYLES = `
   }
 
   .humidity-value {
-    font-size: 1.75rem;
-    font-size: clamp(1.5rem, 16cqi, 2.25rem);
+    font-size: 2rem;
+    font-size: clamp(1.75rem, 18cqi, 2.5rem);
     font-weight: min(var(--ha-font-weight-normal, 400), 600);
   }
 
   .humidity-label,
   .humidity-status {
-    font-size: 1rem;
+    font-size: 1.0625rem;
     color: var(--secondary-text-color);
   }
 
@@ -342,6 +353,11 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
   if (!config || typeof config !== "object") throw new Error(USAGE);
   const raw = config as Record<string, unknown>;
 
+  const precision = {
+    temperaturePrecision: precisionField(raw, "temperature_precision", DEFAULT_TEMPERATURE_PRECISION),
+    humidityPrecision: precisionField(raw, "humidity_precision", DEFAULT_HUMIDITY_PRECISION),
+  };
+
   if (raw.sensors !== undefined) {
     if (raw.entity !== undefined) {
       throw new Error("Use either 'entity' (one sensor) or 'sensors' (a list), not both.");
@@ -349,43 +365,113 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
     if (!Array.isArray(raw.sensors) || raw.sensors.length === 0) {
       throw new Error("'sensors' must be a list with at least one sensor, each with a 'temp_entity'.");
     }
-    return { sensors: raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`)) };
+    return { sensors: raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`)), ...precision };
   }
 
   if (typeof raw.entity !== "string" || raw.entity.trim() === "") throw new Error(USAGE);
-  return { sensors: [{ temp_entity: raw.entity.trim() }] };
+  return { sensors: [{ temp_entity: raw.entity.trim() }], ...precision };
+}
+
+/** A card-wide decimal count: a whole number 0..MAX_PRECISION, or the default when omitted. */
+function precisionField(raw: Record<string, unknown>, key: string, fallback: number): number {
+  const value = raw[key];
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > MAX_PRECISION) {
+    throw new Error(`'${key}' must be a whole number from 0 to ${MAX_PRECISION} (got ${JSON.stringify(value)}).`);
+  }
+  return value;
 }
 
 /**
- * A state as display parts, preferring HA's own formatter. The fallback is
- * the raw state followed by the entity's unit_of_measurement.
+ * The Intl locale(s) and grouping HA uses for numbers, mirroring upstream
+ * numberFormatToLocale / formatNumberToParts
+ * (home-assistant/frontend src/common/number/format_number.ts), so values
+ * re-formatted here match the rest of the HA UI.
  */
-function formatParts(hass: HomeAssistant, stateObj: HassEntity): ValuePart[] {
+function numberFormat(hass: HomeAssistant): { locales: string | string[] | undefined; useGrouping: boolean } {
+  switch (hass.locale?.number_format) {
+    case "comma_decimal":
+      return { locales: ["en-US", "en"], useGrouping: true };
+    case "decimal_comma":
+      return { locales: ["de", "es", "it"], useGrouping: true };
+    case "space_comma":
+      return { locales: ["fr", "sv", "cs"], useGrouping: true };
+    case "quote_decimal":
+      return { locales: ["de-CH"], useGrouping: true };
+    case "none":
+      return { locales: "en-US", useGrouping: false };
+    case "system":
+      return { locales: undefined, useGrouping: true };
+    default:
+      return { locales: hass.locale?.language ?? hass.language, useGrouping: true };
+  }
+}
+
+/**
+ * A numeric state with exactly `digits` decimals in the user's number
+ * format, or undefined if the state is not a number. HA's formatter takes
+ * its precision from the entity registry and has no precision argument,
+ * so only the number is formatted here; units and spacing still come from
+ * HA (see formatParts).
+ */
+function formatNumberState(hass: HomeAssistant, state: string, digits: number): string | undefined {
+  if (state.trim() === "") return undefined;
+  const num = Number(state);
+  if (!Number.isFinite(num)) return undefined;
+  const { locales, useGrouping } = numberFormat(hass);
+  const options = { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping };
+  try {
+    return new Intl.NumberFormat(locales, options).format(num);
+  } catch {
+    // An unusable locale tag: fall back to the browser's own number format.
+    return new Intl.NumberFormat(undefined, options).format(num);
+  }
+}
+
+/**
+ * A state as display parts, preferring HA's own formatter (units, unit
+ * spacing, locale). The fallback is the raw state followed by the entity's
+ * unit_of_measurement. For numeric states the value part is replaced by the
+ * number at the card's precision; other states are left as HA formats them.
+ */
+function formatParts(hass: HomeAssistant, stateObj: HassEntity, digits: number): ValuePart[] {
+  let parts: ValuePart[] | undefined;
   if (typeof hass.formatEntityStateToParts === "function") {
     try {
-      const parts = hass.formatEntityStateToParts(stateObj);
-      if (parts.some((part) => part.type === "value" && part.value)) return parts;
+      const haParts = hass.formatEntityStateToParts(stateObj);
+      if (haParts.some((part) => part.type === "value" && part.value)) parts = haParts;
     } catch {
       // Fall through to the raw state below.
     }
   }
-  const parts: ValuePart[] = [{ type: "value", value: stateObj.state }];
-  const unit = stateObj.attributes.unit_of_measurement;
-  if (unit) parts.push({ type: "unit", value: unit });
-  return parts;
+  if (!parts) {
+    parts = [{ type: "value", value: stateObj.state }];
+    const unit = stateObj.attributes.unit_of_measurement;
+    if (unit) parts.push({ type: "unit", value: unit });
+  }
+
+  const value = formatNumberState(hass, stateObj.state, digits);
+  if (value === undefined) return parts;
+  let replaced = false;
+  return parts.flatMap((part) => {
+    if (part.type !== "value") return [part];
+    if (replaced) return [];
+    replaced = true;
+    return [{ type: "value", value }];
+  });
 }
 
 function joinParts(parts: ValuePart[], type: ValuePart["type"]): string {
   return parts.filter((part) => part.type === type).map((part) => part.value).join("");
 }
 
-function renderTemperature(hass: HomeAssistant, stateObj: HassEntity | undefined): string {
+function renderTemperature(hass: HomeAssistant, stateObj: HassEntity | undefined, digits: number): string {
   if (!stateObj) return `<div class="reading"><span class="status">Entity not found</span></div>`;
 
   const noReadingLabel = NO_READING_LABELS[stateObj.state];
   if (noReadingLabel) return `<div class="reading"><span class="status">${noReadingLabel}</span></div>`;
 
-  const parts = formatParts(hass, stateObj);
+  const parts = formatParts(hass, stateObj, digits);
   const value = joinParts(parts, "value");
   const unit = joinParts(parts, "unit") || stateObj.attributes.unit_of_measurement || "";
   return `
@@ -396,7 +482,7 @@ function renderTemperature(hass: HomeAssistant, stateObj: HassEntity | undefined
   `;
 }
 
-function renderHumidity(hass: HomeAssistant, entity: string | undefined): string {
+function renderHumidity(hass: HomeAssistant, entity: string | undefined, digits: number): string {
   if (!entity) return "";
 
   const stateObj = hass.states[entity];
@@ -405,7 +491,7 @@ function renderHumidity(hass: HomeAssistant, entity: string | undefined): string
 
   // Humidity is shown as one formatted string ("54%"), keeping HA's own
   // spacing between value and unit for the user's locale.
-  const parts = formatParts(hass, stateObj);
+  const parts = formatParts(hass, stateObj, digits);
   let text = parts.map((part) => part.value).join("");
   if (!parts.some((part) => part.type === "unit") && stateObj.attributes.unit_of_measurement) {
     text += stateObj.attributes.unit_of_measurement;
@@ -418,15 +504,15 @@ function renderHumidity(hass: HomeAssistant, entity: string | undefined): string
   `;
 }
 
-function renderCell(hass: HomeAssistant, sensor: SensorConfig): string {
+function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig): string {
   const stateObj = hass.states[sensor.temp_entity];
   const name = sensor.name || stateObj?.attributes.friendly_name || sensor.temp_entity;
   return `
     <div class="cell">
       <span class="accent" aria-hidden="true"></span>
       <div class="name">${escapeHtml(name)}</div>
-      ${renderTemperature(hass, stateObj)}
-      ${renderHumidity(hass, sensor.humidity_entity)}
+      ${renderTemperature(hass, stateObj, config.temperaturePrecision)}
+      ${renderHumidity(hass, sensor.humidity_entity, config.humidityPrecision)}
     </div>
   `;
 }
@@ -477,10 +563,11 @@ export class TemperatureCard extends HTMLElement {
     if (!root || !this._config || !this._hass) return;
 
     const hass = this._hass;
+    const config = this._config;
     const html = `
       <style>${STYLES}</style>
       <ha-card>
-        <div class="grid">${this._config.sensors.map((sensor) => renderCell(hass, sensor)).join("")}</div>
+        <div class="grid">${config.sensors.map((sensor) => renderCell(hass, sensor, config)).join("")}</div>
         <div class="build">${escapeHtml(TEMPERATURE_CARD_BUILD)}</div>
       </ha-card>
     `;
