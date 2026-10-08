@@ -44,19 +44,23 @@ interface HomeAssistant {
   formatEntityStateToParts?: (stateObj: HassEntity) => ValuePart[];
 }
 
-/** One cell of the grid. */
+/**
+ * One cell of the grid, in the single internal shape that every accepted
+ * config form is normalized to (see normalizeConfig).
+ */
 interface SensorConfig {
   /** Temperature entity (required). */
-  entity: string;
+  temp_entity: string;
   /** Optional humidity entity shown under the temperature. */
-  humidity?: string;
+  humidity_entity?: string;
   /** Optional display name; defaults to the temperature entity's friendly name. */
   name?: string;
 }
 
 /**
- * Normalized configuration. The single-sensor form (`entity:`) becomes a
- * one-item `sensors` list, so there is only one rendering path.
+ * Normalized configuration. The top-level single-sensor shorthand
+ * (`entity:`) becomes a one-item `sensors` list, so there is only one
+ * rendering path.
  */
 interface TemperatureCardConfig {
   sensors: SensorConfig[];
@@ -272,39 +276,67 @@ function escapeHtml(text: string): string {
 }
 
 const USAGE =
-  "Set 'entity' to a temperature sensor, e.g. entity: sensor.living_room_temperature, or list several under 'sensors'.";
+  "Set 'entity' to a temperature sensor, e.g. entity: sensor.living_room_temperature, " +
+  "or list several under 'sensors', each with a 'temp_entity'.";
 
-function entityId(value: unknown, where: string): string {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`${where}: 'entity' must be a temperature sensor entity ID.`);
-  }
-  return value.trim();
+function describeType(value: unknown): string {
+  if (Array.isArray(value)) return "a list";
+  if (typeof value === "object") return "a mapping";
+  return `a ${typeof value}`;
 }
 
-function optionalText(value: unknown, key: string, where: string): string | undefined {
+/**
+ * An optional text field, trimmed. Missing or null (an empty YAML value)
+ * means "not set"; anything else must be non-empty text.
+ */
+function textField(raw: Record<string, unknown>, key: string, where: string): string | undefined {
+  const value = raw[key];
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`${where}: '${key}' must be non-empty text if set.`);
-  }
+  if (typeof value !== "string") throw new Error(`${where}: '${key}' must be text, not ${describeType(value)}.`);
+  if (value.trim() === "") throw new Error(`${where}: '${key}' is empty.`);
   return value.trim();
 }
 
+/**
+ * An entity field that also accepts a deprecated legacy key. Both may be
+ * given only if they name the same entity; otherwise it is an error rather
+ * than a silent choice.
+ */
+function entityField(raw: Record<string, unknown>, key: string, legacyKey: string, where: string): string | undefined {
+  const value = textField(raw, key, where);
+  const legacy = textField(raw, legacyKey, where);
+  if (value !== undefined && legacy !== undefined && value !== legacy) {
+    throw new Error(
+      `${where}: '${key}' (${value}) and the older '${legacyKey}' (${legacy}) name different entities. Remove '${legacyKey}'.`,
+    );
+  }
+  return value ?? legacy;
+}
+
+/**
+ * One `sensors` item. Canonical keys are temp_entity / humidity_entity /
+ * name; the older entity / humidity keys are still accepted.
+ */
 function normalizeSensor(item: unknown, where: string): SensorConfig {
   if (!item || typeof item !== "object" || Array.isArray(item)) {
-    throw new Error(`${where}: each sensor needs an 'entity'.`);
+    throw new Error(`${where}: each sensor must be a mapping with a 'temp_entity', e.g. "- temp_entity: sensor.hallway_temperature".`);
   }
   const raw = item as Record<string, unknown>;
-  const sensor: SensorConfig = { entity: entityId(raw.entity, where) };
-  const humidity = optionalText(raw.humidity, "humidity", where);
-  const name = optionalText(raw.name, "name", where);
-  if (humidity) sensor.humidity = humidity;
+  const tempEntity = entityField(raw, "temp_entity", "entity", where);
+  if (!tempEntity) throw new Error(`${where}: 'temp_entity' is required (the temperature sensor's entity ID).`);
+
+  const sensor: SensorConfig = { temp_entity: tempEntity };
+  const humidityEntity = entityField(raw, "humidity_entity", "humidity", where);
+  const name = textField(raw, "name", where);
+  if (humidityEntity) sensor.humidity_entity = humidityEntity;
   if (name) sensor.name = name;
   return sensor;
 }
 
 /**
- * Accepts either `entity: <id>` (one sensor) or `sensors: [...]`, and
- * returns the single normalized form. Throws on anything else.
+ * Accepts either the top-level shorthand `entity: <id>` (one sensor) or
+ * `sensors: [...]`, and returns the single normalized form that rendering
+ * uses. Throws on anything else.
  */
 function normalizeConfig(config: unknown): TemperatureCardConfig {
   if (!config || typeof config !== "object") throw new Error(USAGE);
@@ -315,13 +347,13 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
       throw new Error("Use either 'entity' (one sensor) or 'sensors' (a list), not both.");
     }
     if (!Array.isArray(raw.sensors) || raw.sensors.length === 0) {
-      throw new Error("'sensors' must be a list with at least one sensor, each with an 'entity'.");
+      throw new Error("'sensors' must be a list with at least one sensor, each with a 'temp_entity'.");
     }
     return { sensors: raw.sensors.map((item, index) => normalizeSensor(item, `sensors item ${index + 1}`)) };
   }
 
   if (typeof raw.entity !== "string" || raw.entity.trim() === "") throw new Error(USAGE);
-  return { sensors: [{ entity: raw.entity.trim() }] };
+  return { sensors: [{ temp_entity: raw.entity.trim() }] };
 }
 
 /**
@@ -387,14 +419,14 @@ function renderHumidity(hass: HomeAssistant, entity: string | undefined): string
 }
 
 function renderCell(hass: HomeAssistant, sensor: SensorConfig): string {
-  const stateObj = hass.states[sensor.entity];
-  const name = sensor.name || stateObj?.attributes.friendly_name || sensor.entity;
+  const stateObj = hass.states[sensor.temp_entity];
+  const name = sensor.name || stateObj?.attributes.friendly_name || sensor.temp_entity;
   return `
     <div class="cell">
       <span class="accent" aria-hidden="true"></span>
       <div class="name">${escapeHtml(name)}</div>
       ${renderTemperature(hass, stateObj)}
-      ${renderHumidity(hass, sensor.humidity)}
+      ${renderHumidity(hass, sensor.humidity_entity)}
     </div>
   `;
 }

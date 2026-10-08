@@ -31,18 +31,19 @@ Several sensors:
 ```yaml
 type: custom:temperature-card
 sensors:
-  - entity: sensor.garage_fridge_temperature
-    name: Garage Fridge
-  - entity: sensor.living_room_temperature
-    humidity: sensor.living_room_humidity
-  - entity: sensor.bedroom_temperature
+  - name: Garage Fridge
+    temp_entity: sensor.garage_fridge_temperature
+
+  - name: Hallway
+    temp_entity: sensor.home_current_temperature
+    humidity_entity: sensor.home_current_humidity
 ```
 
-One sensor (the original form, still supported):
+One sensor (simple shorthand):
 
 ```yaml
 type: custom:temperature-card
-entity: sensor.living_room_temperature
+entity: sensor.garage_fridge_temperature
 ```
 
 ## Options
@@ -58,9 +59,17 @@ Each item in `sensors`:
 
 | Key | Required | Description |
 | --- | --- | --- |
-| `entity` | Yes | Temperature entity. |
-| `humidity` | No | Humidity entity shown under the temperature. Omit it and no humidity line is shown. |
-| `name` | No | Display name. Defaults to the temperature entity's friendly name. |
+| `temp_entity` | Yes | Temperature entity. |
+| `humidity_entity` | No | Humidity entity shown under the temperature. Omit it and no humidity line is shown. |
+| `name` | No | Display name. Defaults to the temperature entity's friendly name, then its entity ID. |
+
+### Older sensor-item keys (deprecated)
+
+Earlier versions used `entity` and `humidity` inside each `sensors` item.
+They still work, but use `temp_entity` and `humidity_entity` in new
+configurations. If an item sets both the new and the old key to different
+entities, the card shows a configuration error rather than guessing.
+(The top-level `entity` shorthand above is not deprecated.)
 
 ## Build
 
