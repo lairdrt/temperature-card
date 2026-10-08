@@ -4,7 +4,11 @@
 
 This repository contains `temperature-card`, a custom Home Assistant Lovelace card for temperature sensors.
 
-The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current state is an early visual prototype: a responsive grid of sensor cells, each with a name, the current temperature, and optional humidity. Groups, averages, color ranges, history, and a visual editor are not built. Do not describe or assume features that have not been built.
+The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current state is the known-good baseline tagged `v0.1.0-baseline`: a responsive grid of sensor cells (name, temperature, optional humidity), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` configuration with legacy compatibility, theme-derived panels with an accent rail, and a permanent build tag. Groups, averages, color ranges, history, and a visual editor are not built. Do not describe or assume features that have not been built.
+
+## Next Feature (planned, not built)
+
+Configurable temperature ranges using the existing accent rail: each cell's rail color is set through `--temperature-card-accent`. Agreed range rule: a reading belongs to a range when `min <= value < max`. The range configuration schema is not defined yet; design it in that pass.
 
 ## Reference Project: yardian-card
 

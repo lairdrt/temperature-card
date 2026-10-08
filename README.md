@@ -24,6 +24,17 @@ history, and a visual editor are not built yet.
   themes whose card and background colors are identical (for example
   Graphite E-ink Dark).
 
+## Status
+
+`v0.1.0-baseline` is the known-good baseline before temperature-range
+coloring: responsive multi-sensor grid, optional humidity, card-wide
+precision options, `temp_entity` / `humidity_entity` configuration,
+theme-derived panels with an accent rail, and the visible build tag.
+
+Next planned feature (not built yet): configurable temperature ranges that
+color each sensor's accent rail. A reading belongs to a range when
+`min <= value < max`.
+
 ## Examples
 
 Several sensors:
