@@ -4,7 +4,7 @@
 
 This repository contains `temperature-card`, a custom Home Assistant Lovelace card for temperature sensors.
 
-The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.2.0-baseline` (see below; the earlier `v0.1.0-baseline` tag is kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, a permanent build tag, and optional ordered groups shown as tabs with roll-up average cells (added after `v0.2.0-baseline`, not yet tagged). Configurable color ranges, history, charts, and a visual editor are not built. Do not describe or assume features that have not been built.
+The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.2.0-baseline` (see below; the earlier `v0.1.0-baseline` tag is kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, a permanent build tag, optional ordered groups shown as tabs with roll-up average cells, and automatic 24-hour history graphs in wide cells (both added after `v0.2.0-baseline`, not yet tagged). History configuration, interactive charts, configurable color ranges, and a visual editor are not built. Do not describe or assume features that have not been built.
 
 ## Known-Good Baseline: v0.2.0-baseline
 
@@ -43,6 +43,16 @@ Each cell's accent rail is colored from its current temperature with zero config
 - Do not add range configuration (YAML thresholds, colors, profiles) casually; only if the user explicitly asks for it.
 - Only the rail is colored. Do not color the temperature text, panel, humidity, or battery by temperature unless the user explicitly changes the design.
 - The colors are tuned for the rail being drawn at 70% over the cell surface, and checked on Graphite E-ink Dark, HA dark/light, and Frosted Glass Dark. Re-check all four if they change.
+
+## History Graphs (implemented, not yet baselined)
+
+- A cell whose content box is at least `GRAPH_MIN_CELL_REM` (30rem) wide shows the last 24 h of temperature on its right. The CSS container query and `_measure()` (which also decides whether to fetch at all) use the same constant. Narrower cells must stay identical to the no-graph layout.
+- The graph is absolutely positioned inside the cell (never adds height) with `pointer-events: none`, so taps, swipes and `open_group` clicks reach the cell. The left content is capped at 15rem while a graph is shown.
+- Data path mirrors HA's more-info: `recorder/statistics_during_period` (`5minute`, `mean`) for entities with `state_class`; otherwise (or if statistics are empty) `history/history_during_period` (minimal, no attributes) resampled to the same 5-minute buckets. Statistics come back in the entity's current unit.
+- Roll-up graphs average the members per 5-minute bucket key (never by array index), converting units like the current average. The rail still shows the current average.
+- `historyCache` is module-level (shared by all cards), coalesces in-flight requests, and refreshes on a 5-minute timer per connected card. Live `hass` updates never fetch; tabs fetch only their own (wide) cells. Failures mean "no graph", never an error.
+- No YAML options for history (period, refresh, colors, visibility). Do not add any unless the user asks.
+- The line uses `--primary-color` (one quiet line, faint fill, up to three labelled guides at 1rem). Do not color it by temperature band.
 
 ## Reference Project: yardian-card
 

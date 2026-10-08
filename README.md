@@ -4,7 +4,7 @@ A custom Home Assistant Lovelace card for temperature sensors.
 
 The goal is a compact, readable, theme-aware temperature dashboard card.
 **This project is in early development.** Configurable color ranges,
-history, and a visual editor are not built yet.
+history options, and a visual editor are not built yet.
 
 ## What it does today
 
@@ -28,6 +28,8 @@ history, and a visual editor are not built yet.
 - Optionally arranges sensors into named groups shown one at a time behind a
   row of tabs, with roll-up cells that show the average of several sensors
   (see [Groups](#groups)).
+- In cells that are wide enough, draws the last 24 hours of temperature on
+  the right of the cell (see [History graph](#history-graph)).
 
 ## Accent rail color
 
@@ -50,6 +52,40 @@ usable reading or an unrecognized unit, its rail keeps the theme's accent
 color. Only the rail changes; the temperature text and everything else stay
 in the theme's colors.
 
+## History graph
+
+When a cell is wide enough, the card draws that sensor's temperature over
+the last 24 hours on the right-hand side of the cell. The reading, humidity
+and battery stay on the left exactly as before. There is nothing to
+configure.
+
+- **When it appears:** it depends on the width of each cell, not the screen.
+  A cell needs at least about 526 px (30rem of content at the default font
+  size). Narrower cells look exactly as they do without the graph. In
+  practice: a one-column card about 550 px or wider, or two cells side by
+  side on a card about 1,085 px or wider.
+- **What it shows:** one line with a light fill, a few faint guide lines
+  labelled with round temperatures, and no other chart decoration. The
+  vertical scale follows the sensor's own range over the 24 hours, with a
+  minimum span of 4 °F (about 2 °C) so a steady sensor's small wobble stays
+  small. The line uses the theme's primary color; the accent rail keeps
+  showing the current temperature band.
+- **Roll-ups:** the graph is the historical average of the same members,
+  computed the same way as the current average. Readings are lined up on
+  shared 5-minute intervals; each interval averages the members that had a
+  reading then (converted to the roll-up's unit). One line, never one per
+  member.
+- **Where the data comes from:** Home Assistant's recorder, in the same way as
+  Home Assistant's own more-info history. Sensors with a `state_class` use
+  5-minute statistics; others use the recorded states, averaged into the same
+  5-minute steps. No helper entities are needed.
+- **Updates:** history is loaded only for the cells on show that are wide
+  enough, is shared by all temperature cards on the page, and refreshes
+  every 5 minutes. Live readings still update immediately and never trigger
+  a history request.
+- **No history:** if the recorder has no data for a sensor, or the request
+  fails, the cell simply shows no graph.
+
 ## Status
 
 `v0.1.0-baseline` is the known-good baseline before temperature-range
@@ -61,7 +97,8 @@ automatic rail colors.
 
 `v0.2.0-baseline` is the known-good baseline before groups. Groups, tabs,
 and roll-up averages were added after it; a card without `groups` renders
-exactly as it did at `v0.2.0-baseline`.
+exactly as it did at `v0.2.0-baseline`. History graphs were added next;
+cells too narrow for a graph are unchanged.
 
 ## Examples
 

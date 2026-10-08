@@ -47,6 +47,8 @@ interface HomeAssistant {
   language?: string;
   /** HA's unit system; its temperature unit is used for mixed-unit roll-ups. */
   config?: { unit_system?: { temperature?: string } };
+  /** HA's WebSocket call, used only to read recorder history for the graphs. */
+  callWS?: <T>(message: Record<string, unknown>) => Promise<T>;
 }
 
 /**
@@ -210,6 +212,14 @@ function temperatureState(stateObj: HassEntity | undefined): TemperatureState | 
  * Text that cannot fit wraps or, as a last resort, breaks, rather than
  * overflowing its cell. Names are limited to two lines.
  */
+/**
+ * History graphs appear only in cells whose content box is at least this
+ * wide (rem, so it follows the browser's font size like the text). The CSS
+ * container query and the card's own check (which decides whether to fetch
+ * history at all) both use it.
+ */
+const GRAPH_MIN_CELL_REM = 30;
+
 const STYLES = `
   :host {
     display: block;
@@ -573,6 +583,76 @@ const STYLES = `
     .grid.switch-prev {
       animation: none;
     }
+  }
+
+  /* History graph (only cells with history and room for it; none of these
+     rules affect a cell without a graph). The existing content keeps the
+     left part of the cell at its normal sizes; the graph fills the rest of
+     the cell's height on the right, positioned so it never adds height, and
+     ignores the pointer so taps and swipes reach the cell as before. */
+  .graph {
+    display: none;
+  }
+
+  @container (min-width: ${GRAPH_MIN_CELL_REM}rem) {
+    .cell--graph > .graph {
+      display: block;
+      position: absolute;
+      top: 16px;
+      bottom: 18px;
+      left: calc(28px + 16.5rem);
+      right: 16px;
+      pointer-events: none;
+    }
+
+    .cell--graph > .name,
+    .cell--graph > .reading,
+    .cell--graph > .humidity,
+    .cell--graph > .lower {
+      max-width: 15rem;
+    }
+  }
+
+  .graph-plot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc(100% - 3.25rem);
+    height: 100%;
+    overflow: visible;
+  }
+
+  .graph-guide {
+    fill: none;
+    stroke: var(--divider-color);
+    stroke: color-mix(in srgb, var(--primary-text-color, currentColor) 14%, transparent);
+    stroke-width: 1px;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .graph-area {
+    fill: none;
+    fill: color-mix(in srgb, var(--primary-color, currentColor) 8%, transparent);
+  }
+
+  .graph-line {
+    fill: none;
+    stroke: var(--primary-color, currentColor);
+    stroke-width: 1.5px;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .graph-tick {
+    position: absolute;
+    right: 0;
+    transform: translateY(-50%);
+    font-size: 1rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--secondary-text-color);
   }
 `;
 
@@ -967,6 +1047,8 @@ interface CellContent {
   /** Extra classes / attributes on the cell (roll-up navigation). */
   classes?: string;
   attrs?: string;
+  /** History graph markup ("" or undefined for none). */
+  graphHtml?: string;
 }
 
 function renderCellContent(hass: HomeAssistant, cell: CellContent, config: TemperatureCardConfig): string {
@@ -981,17 +1063,21 @@ function renderCellContent(hass: HomeAssistant, cell: CellContent, config: Tempe
   const bandAttrs = band
     ? ` data-temperature-state="${band}" style="--temperature-card-accent: ${TEMPERATURE_STATE_COLORS[band]}"`
     : "";
+  // A graph, when there is one, comes last and is laid out on the right
+  // (wide cells only; see the graph styles). Without one the cell is unchanged.
+  const graph = cell.graphHtml ? { classes: " cell--graph", html: cell.graphHtml } : { classes: "", html: "" };
   return `
-    <div class="cell${cell.classes ?? ""}"${cell.attrs ?? ""}${bandAttrs}>
+    <div class="cell${cell.classes ?? ""}${graph.classes}"${cell.attrs ?? ""}${bandAttrs}>
       <span class="accent" aria-hidden="true"></span>
       <div class="name">${escapeHtml(cell.name)}</div>
       ${renderTemperature(hass, cell.temperature, config.temperaturePrecision)}
-      ${lower}
+      ${lower}${graph.html}
     </div>
   `;
 }
 
-function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig): string {
+/** `graphs`: the cells are wide enough for a history graph (see TemperatureCard._measure). */
+function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig, graphs = false): string {
   const stateObj = hass.states[sensor.temp_entity];
   return renderCellContent(
     hass,
@@ -1001,6 +1087,7 @@ function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: Temperatu
       humidityHtml: renderHumidity(hass, sensor.humidity_entity, config.humidityPrecision),
       hasHumidity: Boolean(sensor.humidity_entity),
       batteryEntity: sensor.battery_entity,
+      graphHtml: graphs ? sensorGraph(hass, sensor, config) : "",
     },
     config,
   );
@@ -1071,6 +1158,7 @@ function renderRollUp(
   item: Extract<GroupItem, { kind: "average" }>,
   groups: GroupConfig[],
   config: TemperatureCardConfig,
+  graphs = false,
 ): string {
   const temperature = averageTemperature(hass, item.members);
   const humidity = averageHumidity(hass, item.members);
@@ -1091,9 +1179,328 @@ function renderRollUp(
       attrs: target
         ? ` role="button" tabindex="0" data-open-group="${escapeHtml(target.id)}" title="${escapeHtml(`Open ${target.name}`)}" aria-label="${escapeHtml(label)}"`
         : "",
+      graphHtml: graphs ? rollUpGraph(hass, item, temperature, config) : "",
     },
     config,
   );
+}
+
+/*
+ * Temperature history: a 24-hour graph on the right of cells that are wide
+ * enough (see GRAPH_MIN_CELL_REM). The data path mirrors HA's own more-info
+ * dialog: entities with a state_class have 5-minute statistics
+ * (recorder/statistics_during_period, which HA returns in the entity's
+ * current unit); for other entities, or if statistics come back empty, the
+ * recorded states (history/history_during_period) are resampled here onto
+ * the same 5-minute boundaries. History is cached per entity for every card
+ * on the page and refreshed every few minutes, independently of live state
+ * updates. Any failure simply means no graph; the reading is unaffected.
+ */
+const HISTORY_SPAN_MS = 24 * 60 * 60 * 1000;
+const BUCKET_MS = 5 * 60 * 1000;
+const HISTORY_REFRESH_MS = 5 * 60 * 1000;
+/** Lets a refresh timer that fires slightly early still count as due. */
+const HISTORY_REFRESH_SLACK_MS = 30 * 1000;
+/** Gaps longer than this (an unavailable sensor) break the line. */
+const GRAPH_MAX_GAP_MS = 3 * BUCKET_MS;
+
+/** 5-minute bucket start (ms) -> value in the entity's unit, in time order. */
+type Series = Map<number, number>;
+
+interface HistoryEntry {
+  /** When the last request for this entity was made. */
+  requestedAt: number;
+  /** When `series` was fetched; the right-hand edge of its graph. */
+  fetchedAt?: number;
+  /** Undefined when there is no usable history. */
+  series?: Series;
+  pending?: Promise<void>;
+}
+
+const historyCache = new Map<string, HistoryEntry>();
+
+type CallWS = <T>(message: Record<string, unknown>) => Promise<T>;
+interface StatisticsRow {
+  start: number | string;
+  mean?: number | null;
+}
+/** HA's compressed history state: state, and last changed/updated in seconds. */
+interface CompressedState {
+  s?: string;
+  lc?: number;
+  lu?: number;
+}
+
+function seriesFromStatistics(rows: unknown): Series {
+  const series: Series = new Map();
+  for (const row of Array.isArray(rows) ? (rows as StatisticsRow[]) : []) {
+    const start = typeof row.start === "number" ? row.start : Date.parse(String(row.start));
+    if (Number.isFinite(start) && typeof row.mean === "number" && Number.isFinite(row.mean)) series.set(start, row.mean);
+  }
+  return series;
+}
+
+/**
+ * Recorded states -> 5-minute buckets. Each bucket takes the state in
+ * effect at its midpoint, so a reading carries forward until the sensor
+ * reports again, and a non-numeric state (unavailable, unknown) is a gap.
+ */
+function seriesFromStates(states: unknown, start: number, end: number): Series {
+  const changes = (Array.isArray(states) ? (states as CompressedState[]) : [])
+    .map((state) => ({
+      time: (state.lc ?? state.lu ?? NaN) * 1000,
+      value: typeof state.s === "string" && state.s.trim() !== "" ? Number(state.s) : NaN,
+    }))
+    .filter((change) => Number.isFinite(change.time))
+    .sort((a, b) => a.time - b.time);
+  const series: Series = new Map();
+  let index = -1;
+  for (let bucket = Math.ceil(start / BUCKET_MS) * BUCKET_MS; bucket + BUCKET_MS <= end; bucket += BUCKET_MS) {
+    const midpoint = bucket + BUCKET_MS / 2;
+    while (index + 1 < changes.length && changes[index + 1].time <= midpoint) index++;
+    const value = index >= 0 ? changes[index].value : NaN;
+    if (Number.isFinite(value)) series.set(bucket, value);
+  }
+  return series;
+}
+
+/** One request per data source for all `entities`; results go into historyCache. */
+async function fetchHistory(callWS: CallWS, hass: HomeAssistant, entities: string[], now: number): Promise<void> {
+  const start = now - HISTORY_SPAN_MS;
+  const startTime = new Date(start).toISOString();
+  const found = new Map<string, Series>();
+  const failed = new Set<string>();
+
+  const withStatistics = entities.filter((id) => hass.states[id]?.attributes.state_class);
+  if (withStatistics.length > 0) {
+    try {
+      const result = await callWS<Record<string, unknown>>({
+        type: "recorder/statistics_during_period",
+        start_time: startTime,
+        statistic_ids: withStatistics,
+        period: "5minute",
+        types: ["mean"],
+      });
+      for (const id of withStatistics) {
+        const series = seriesFromStatistics(result?.[id]);
+        if (series.size > 0) found.set(id, series);
+      }
+    } catch {
+      // Fall back to recorded states below.
+    }
+  }
+
+  const withStates = entities.filter((id) => !found.has(id));
+  if (withStates.length > 0) {
+    try {
+      const result = await callWS<Record<string, unknown>>({
+        type: "history/history_during_period",
+        start_time: startTime,
+        end_time: new Date(now).toISOString(),
+        entity_ids: withStates,
+        minimal_response: true,
+        no_attributes: true,
+      });
+      for (const id of withStates) {
+        const series = seriesFromStates(result?.[id], start, now);
+        if (series.size > 0) found.set(id, series);
+      }
+    } catch {
+      withStates.forEach((id) => failed.add(id));
+    }
+  }
+
+  for (const id of entities) {
+    // A failed request keeps what was shown before; it is retried at the next refresh.
+    const previous = historyCache.get(id);
+    historyCache.set(
+      id,
+      failed.has(id)
+        ? { requestedAt: now, fetchedAt: previous?.fetchedAt, series: previous?.series }
+        : { requestedAt: now, fetchedAt: now, series: found.get(id) },
+    );
+  }
+}
+
+/**
+ * Makes sure the entities' history is loaded and no older than the refresh
+ * interval. An entity already being fetched is waited for, not requested
+ * again. Resolves true if anything was waited for, so the card re-renders.
+ */
+function loadHistory(hass: HomeAssistant, entities: string[]): Promise<boolean> {
+  const callWS = hass.callWS;
+  if (typeof callWS !== "function") return Promise.resolve(false);
+  const now = Date.now();
+  const waits: Array<Promise<void>> = [];
+  const due: string[] = [];
+  for (const id of new Set(entities)) {
+    const entry = historyCache.get(id);
+    if (entry?.pending) waits.push(entry.pending);
+    else if (!entry || now - entry.requestedAt >= HISTORY_REFRESH_MS - HISTORY_REFRESH_SLACK_MS) due.push(id);
+  }
+  if (due.length > 0) {
+    // Started on the next microtask, so the entries are marked pending first.
+    const pending = Promise.resolve()
+      .then(() => fetchHistory(callWS.bind(hass) as CallWS, hass, due, now))
+      .catch(() => undefined);
+    for (const id of due) historyCache.set(id, { ...historyCache.get(id), requestedAt: now, pending });
+    waits.push(pending);
+  }
+  return waits.length > 0 ? Promise.all(waits).then(() => true) : Promise.resolve(false);
+}
+
+function entityUnit(hass: HomeAssistant, entity: string): string {
+  return String(hass.states[entity]?.attributes.unit_of_measurement ?? "").trim();
+}
+
+/** A sensor cell's graph: its own temperature history. */
+function sensorGraph(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig): string {
+  const entry = historyCache.get(sensor.temp_entity);
+  if (!entry?.series || entry.fetchedAt === undefined) return "";
+  return renderGraph(hass, [...entry.series], entry.fetchedAt, entityUnit(hass, sensor.temp_entity), config);
+}
+
+/**
+ * A roll-up's graph: the historical average of the same members, in the
+ * same unit as its current average. Members are aligned on the shared
+ * 5-minute bucket boundaries (never by position in their arrays); each
+ * bucket averages the members that have a value for it, so an unavailable
+ * member is left out exactly as it is from the current average.
+ */
+function rollUpGraph(
+  hass: HomeAssistant,
+  item: Extract<GroupItem, { kind: "average" }>,
+  current: HassEntity,
+  config: TemperatureCardConfig,
+): string {
+  const unit =
+    String(current.attributes.unit_of_measurement ?? "") ||
+    item.members.map((member) => entityUnit(hass, member.temp_entity)).find((u) => TO_FAHRENHEIT[u]) ||
+    "";
+  const fromF = FROM_FAHRENHEIT[unit];
+  if (!fromF) return "";
+
+  const totals = new Map<number, { sum: number; count: number }>();
+  let end = Infinity;
+  for (const member of item.members) {
+    const entry = historyCache.get(member.temp_entity);
+    const memberUnit = entityUnit(hass, member.temp_entity);
+    const toF = TO_FAHRENHEIT[memberUnit];
+    if (!entry?.series || entry.fetchedAt === undefined || !toF) continue;
+    end = Math.min(end, entry.fetchedAt);
+    for (const [bucket, value] of entry.series) {
+      const total = totals.get(bucket) ?? { sum: 0, count: 0 };
+      total.sum += memberUnit === unit ? value : fromF(toF(value));
+      total.count += 1;
+      totals.set(bucket, total);
+    }
+  }
+  if (!Number.isFinite(end)) return "";
+  // Only buckets every member could already have (members may have been fetched at different times).
+  const points = [...totals]
+    .filter(([bucket]) => bucket + BUCKET_MS <= end)
+    .sort((a, b) => a[0] - b[0])
+    .map(([bucket, total]): [number, number] => [bucket, total.sum / total.count]);
+  return renderGraph(hass, points, end, unit, config);
+}
+
+/**
+ * Vertical range: the observed low and high, widened to a minimum span (4 °F
+ * or its equivalent, so a steady sensor's small wobble stays small) and
+ * padded so the line stays clear of the edges.
+ */
+function graphRange(low: number, high: number, unit: string): { min: number; max: number } {
+  const fromF = FROM_FAHRENHEIT[unit];
+  const minSpan = fromF ? fromF(4) - fromF(0) : 4;
+  if (high - low < minSpan) {
+    const middle = (low + high) / 2;
+    low = middle - minSpan / 2;
+    high = middle + minSpan / 2;
+  }
+  const pad = (high - low) * 0.15;
+  return { min: low - pad, max: high + pad };
+}
+
+/**
+ * Guide-line values: the finest round step (1, 2 or 5 x 10^n) that gives at
+ * most three lines, kept a little away from the top and bottom edges so
+ * their labels fit.
+ */
+function graphTicks(min: number, max: number): { ticks: number[]; digits: number } {
+  const inset = (max - min) * 0.06;
+  const low = min + inset;
+  const high = max - inset;
+  let step = 1;
+  for (let exponent = Math.floor(Math.log10(max - min)) - 2; ; exponent++) {
+    const candidate = [1, 2, 5].map((m) => m * 10 ** exponent).find((s) => Math.floor(high / s) - Math.ceil(low / s) + 1 <= 3);
+    if (candidate !== undefined) {
+      step = candidate;
+      break;
+    }
+  }
+  const ticks: number[] = [];
+  for (let n = Math.ceil(low / step); n * step <= high; n++) ticks.push(Number((n * step).toFixed(6)));
+  return { ticks, digits: step < 1 ? Math.min(MAX_PRECISION, Math.ceil(-Math.log10(step) - 1e-9)) : 0 };
+}
+
+/**
+ * The graph: one line (with a faint fill) over the last 24 hours ending at
+ * `end`, a few guide lines with their values at the right, and nothing
+ * else. The SVG stretches to the space available (non-scaling strokes keep
+ * lines crisp); the labels are HTML so their text is never distorted.
+ * Points are 5-minute buckets, drawn at their midpoints.
+ */
+function renderGraph(
+  hass: HomeAssistant,
+  buckets: Array<[number, number]>,
+  end: number,
+  unit: string,
+  config: TemperatureCardConfig,
+): string {
+  const start = end - HISTORY_SPAN_MS;
+  const points = buckets
+    .map(([bucket, value]): [number, number] => [bucket + BUCKET_MS / 2, value])
+    .filter(([time]) => time >= start && time <= end);
+  if (points.length < 2) return "";
+
+  const values = points.map(([, value]) => value);
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const { min, max } = graphRange(low, high, unit);
+  const x = (time: number): string => (((time - start) / HISTORY_SPAN_MS) * 100).toFixed(2);
+  const y = (value: number): string => (((max - value) / (max - min)) * 100).toFixed(2);
+
+  // One path per run of points without a long gap.
+  const runs: Array<Array<[number, number]>> = [];
+  points.forEach((point, index) => {
+    if (index === 0 || point[0] - points[index - 1][0] > GRAPH_MAX_GAP_MS) runs.push([]);
+    runs[runs.length - 1].push(point);
+  });
+  const line = runs
+    .map((run) => run.map(([time, value], index) => `${index === 0 ? "M" : "L"}${x(time)} ${y(value)}`).join(""))
+    .join("");
+  const area = runs
+    .filter((run) => run.length > 1)
+    .map((run) => `${run.map(([time, value], index) => `${index === 0 ? "M" : "L"}${x(time)} ${y(value)}`).join("")}L${x(run[run.length - 1][0])} 100L${x(run[0][0])} 100Z`)
+    .join("");
+
+  const { ticks, digits } = graphTicks(min, max);
+  const degree = unit.startsWith("°") || unit === "℉" || unit === "℃" ? "°" : "";
+  const guides = ticks.map((tick) => `M0 ${y(tick)}H100`).join("");
+  const labels = ticks
+    .map((tick) => `<span class="graph-tick" style="top: ${y(tick)}%">${escapeHtml(`${formatNumberState(hass, String(tick), digits) ?? tick}${degree}`)}</span>`)
+    .join("");
+
+  const reading = (value: number): string =>
+    formattedText(hass, { entity_id: "sensor.temperature_card_history", state: String(value), attributes: { unit_of_measurement: unit, device_class: "temperature" } }, config.temperaturePrecision);
+  const label = `Last 24 hours: low ${reading(low)}, high ${reading(high)}`;
+
+  return `<div class="graph" role="img" aria-label="${escapeHtml(label)}"><svg class="graph-plot" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path class="graph-guide" d="${guides}"/><path class="graph-area" d="${area}"/><path class="graph-line" d="${line}"/></svg>${labels}</div>`;
+}
+
+/** Every temperature entity whose history the given cells graph. */
+function graphEntities(cells: GroupItem[]): string[] {
+  return cells.flatMap((item) => (item.kind === "sensor" ? [item.sensor.temp_entity] : item.members.map((m) => m.temp_entity)));
 }
 
 /** Every entity the card reads, so unrelated HA updates can be skipped. */
@@ -1135,6 +1542,10 @@ export class TemperatureCard extends HTMLElement {
   private _swipe?: { pointerId: number; x: number; y: number };
   private _ignoreClicksUntil = 0;
   private _switchTimer?: number;
+  /** The cells are wide enough for history graphs (measured; see _measure). */
+  private _wide = false;
+  private _resizeObserver?: ResizeObserver;
+  private _historyTimer?: number;
 
   constructor() {
     super();
@@ -1174,6 +1585,26 @@ export class TemperatureCard extends HTMLElement {
     return this._hass;
   }
 
+  connectedCallback(): void {
+    if (typeof ResizeObserver !== "undefined" && !this._resizeObserver) {
+      this._resizeObserver = new ResizeObserver(() => this._measure());
+      this._resizeObserver.observe(this);
+    }
+    // History is refreshed on a timer, never by live state updates.
+    window.clearInterval(this._historyTimer);
+    this._historyTimer = window.setInterval(() => {
+      if (this._wide) this._requestHistory();
+    }, HISTORY_REFRESH_MS);
+    this._measure();
+  }
+
+  disconnectedCallback(): void {
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = undefined;
+    window.clearInterval(this._historyTimer);
+    this._historyTimer = undefined;
+  }
+
   /**
    * Masonry-view height estimate (1 = 50px). Assumes one cell per row,
    * since masonry columns are usually narrower than two cells need.
@@ -1211,13 +1642,14 @@ export class TemperatureCard extends HTMLElement {
     const html = `
       <style>${STYLES}</style>
       <ha-card>
-        <div class="grid">${config.sensors.map((sensor) => renderCell(hass, sensor, config)).join("")}</div>
+        <div class="grid">${config.sensors.map((sensor) => renderCell(hass, sensor, config, this._wide)).join("")}</div>
         <div class="build">${escapeHtml(TEMPERATURE_CARD_BUILD)}</div>
       </ha-card>
     `;
     if (html === this._renderedHtml) return;
     this._renderedHtml = html;
     root.innerHTML = html;
+    this._measure();
   }
 
   /**
@@ -1249,12 +1681,56 @@ export class TemperatureCard extends HTMLElement {
 
     const group = groups.find((g) => g.id === this._activeGroupId) ?? groups[0];
     const html = group.items
-      .map((item) => (item.kind === "sensor" ? renderCell(hass, item.sensor, config) : renderRollUp(hass, item, groups, config)))
+      .map((item) =>
+        item.kind === "sensor"
+          ? renderCell(hass, item.sensor, config, this._wide)
+          : renderRollUp(hass, item, groups, config, this._wide),
+      )
       .join("");
     if (html === this._gridHtml) return;
     this._gridHtml = html;
     const grid = root.querySelector(".grid");
     if (grid) grid.innerHTML = html;
+    this._measure();
+  }
+
+  /** The cells on show: the active group's, or every sensor's. */
+  private _shownCells(): GroupItem[] {
+    const config = this._config;
+    if (!config) return [];
+    if (!config.groups) return config.sensors.map((sensor) => ({ kind: "sensor", sensor }));
+    return (config.groups.find((g) => g.id === this._activeGroupId) ?? config.groups[0]).items;
+  }
+
+  /**
+   * Whether the cells are wide enough for graphs: the same test as the CSS
+   * container query (content box >= GRAPH_MIN_CELL_REM). Grid cells all
+   * have the same width. A hidden or not yet laid out card measures 0, so
+   * it shows no graphs and fetches nothing.
+   */
+  private _measure(): void {
+    const cell = this.shadowRoot?.querySelector<HTMLElement>(".grid > .cell");
+    let wide = false;
+    if (cell && this.isConnected) {
+      const style = getComputedStyle(cell);
+      const content = cell.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      wide = content >= GRAPH_MIN_CELL_REM * rem;
+    }
+    if (wide !== this._wide) {
+      this._wide = wide;
+      this._render();
+    }
+    if (wide) this._requestHistory();
+  }
+
+  /** Loads (or refreshes, when due) the history of the cells on show, then re-renders. */
+  private _requestHistory(): void {
+    const hass = this._hass;
+    if (!hass) return;
+    void loadHistory(hass, graphEntities(this._shownCells())).then((loaded) => {
+      if (loaded && this.isConnected) this._render();
+    });
   }
 
   private _activeIndex(): number {
