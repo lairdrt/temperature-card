@@ -142,6 +142,8 @@ Use either `entity` or `sensors`, not both.
 | `groups` | Optional ordered list of groups shown as tabs. See [Groups](#groups). |
 | `temperature_precision` | Decimals shown for every temperature on the card: a whole number from 0 to 3. Default `1` (e.g. `77.5 °F`). |
 | `humidity_precision` | Decimals shown for every humidity on the card: a whole number from 0 to 3. Default `0` (e.g. `52%`). |
+| `battery_position` | Corner of each sensor cell for the battery icon: `upper-left`, `upper-right`, `lower-left` or `lower-right`. Default `upper-right`. |
+| `battery_orientation` | Battery icon `vertical` (terminal at the top) or `horizontal` (terminal to the right). Default `vertical`. |
 
 The precision options apply to the whole card and take the place of each
 entity's display precision setting in Home Assistant. Numbers still use your
@@ -160,8 +162,8 @@ Each item in `sensors`:
 
 ### Battery indicator
 
-The battery is a small upright Home Assistant (MDI) battery icon at the
-top right of its sensor's cell, level with the name. The icon's fill shows
+The battery is a small Home Assistant (MDI) battery icon in a corner of its
+sensor's cell; by default the upper right, upright. The icon's fill shows
 the level; there is no visible number. The exact percentage is in its
 tooltip and its accessible label (e.g. "Battery 87%").
 
@@ -182,9 +184,48 @@ tooltip and its accessible label (e.g. "Battery 87%").
 
 An unavailable, unknown or missing battery entity shows a faint
 `mdi:battery-unknown` icon (tooltip "Battery unavailable" or "Battery
-sensor not found"); it never affects the temperature or humidity. When the
-cell shows a history graph, the battery sits at the top right of the
-text column, just left of the graph. Roll-up cells never show a battery.
+sensor not found"); it never affects the temperature or humidity. Roll-up
+cells never show a battery.
+
+#### Position and orientation
+
+Two card-wide options choose where the icon sits and which way it faces:
+
+```yaml
+type: custom:temperature-card
+temperature_precision: 1
+humidity_precision: 0
+battery_position: upper-right
+battery_orientation: vertical
+sensors:
+  - name: Kitchen Freezer
+    temp_entity: sensor.kitchen_kitchen_freezer_temperature
+    humidity_entity: sensor.kitchen_kitchen_freezer_humidity
+    battery_entity: sensor.kitchen_kitchen_freezer_battery
+```
+
+```yaml
+type: custom:temperature-card
+battery_position: lower-right
+battery_orientation: horizontal
+sensors:
+  - name: Garage Fridge
+    temp_entity: sensor.garage_garage_fridge_temperature
+    battery_entity: sensor.garage_garage_fridge_battery
+```
+
+- The corners are those of the whole cell. When a cell shows a history
+  graph, `upper-right` and `lower-right` put the battery at the cell's
+  right edge, beyond the graph; the graph ends a battery's width earlier
+  there so the icon never covers the line or its labels.
+- Upper corners line up with the sensor name; lower corners sit on the
+  bottom edge of the content. Left corners line up with the text, clear of
+  the colored rail.
+- The text beside the icon keeps clear of it with a small inset: the name
+  in the upper corners; in the lower left, the bottom line (the humidity, or
+  the temperature in a cell without humidity).
+- The position does not change with the card's width.
+- Any other value is a configuration error.
 
 ## Groups
 

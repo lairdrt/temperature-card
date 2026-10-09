@@ -94,7 +94,18 @@ interface TemperatureCardConfig {
   temperaturePrecision: number;
   /** Decimals shown for humidity (card-wide). */
   humidityPrecision: number;
+  /** Corner of every sensor cell that holds the battery icon (card-wide). */
+  batteryPosition: BatteryPosition;
+  /** Battery icon upright (terminal at the top) or sideways (terminal to the right). */
+  batteryOrientation: BatteryOrientation;
 }
+
+const BATTERY_POSITIONS = ["upper-left", "upper-right", "lower-left", "lower-right"] as const;
+type BatteryPosition = (typeof BATTERY_POSITIONS)[number];
+const BATTERY_ORIENTATIONS = ["horizontal", "vertical"] as const;
+type BatteryOrientation = (typeof BATTERY_ORIENTATIONS)[number];
+const DEFAULT_BATTERY_POSITION: BatteryPosition = "upper-right";
+const DEFAULT_BATTERY_ORIENTATION: BatteryOrientation = "vertical";
 
 const DEFAULT_TEMPERATURE_PRECISION = 1;
 const DEFAULT_HUMIDITY_PRECISION = 0;
@@ -380,19 +391,13 @@ const STYLES = `
     white-space: nowrap;
   }
 
-  /* Battery: a small MDI battery icon (HA's own ha-icon) at the top right
-     of the cell, centred on the first line of the name, which keeps clear
-     of it. The icon alone shows the level; the exact percentage is in its
-     tooltip and accessible label. Tertiary: the theme's secondary text
-     colour, the warning colour when low, the error colour when critical.
-     MDI battery glyphs are already upright (terminal at the top) and fill
-     the middle half of their square box, so the box reaches a quarter of
-     its width into the padding to line the glyph up with the content edge. */
+  /* Battery: a small MDI battery icon (HA's own ha-icon) floating in one
+     corner of the whole cell (battery_position), outside the content flow.
+     The icon alone shows the level; the exact percentage is in its tooltip
+     and accessible label. Tertiary: the theme's secondary text colour, the
+     warning colour when low, the error colour when critical. */
   .battery {
     position: absolute;
-    top: calc(16px + (1.25 * 1.375rem - 1.25rem) / 2);
-    top: calc(16px + (1.25 * clamp(1.25rem, 10cqi, 1.625rem) - 1.25rem) / 2);
-    right: calc(16px - 1.25rem / 4);
     display: flex;
     width: 1.25rem;
     height: 1.25rem;
@@ -413,8 +418,66 @@ const STYLES = `
     opacity: 0.5;
   }
 
-  .cell--battery > .name {
-    padding-right: calc(1.25rem / 2 + 0.5rem);
+  /* An upright MDI battery glyph (terminal at the top) fills the middle
+     half of its square box across and 20/24 of it down; turned sideways
+     (terminal to the right) the reverse. These are the gaps between the box
+     and the glyph, and the glyph's width, for each orientation. */
+  .cell--battery-vertical {
+    --battery-inset-x: calc(1.25rem / 4);
+    --battery-inset-y: calc(1.25rem / 12);
+    --battery-glyph-width: calc(1.25rem / 2);
+  }
+
+  .cell--battery-horizontal {
+    --battery-inset-x: calc(1.25rem / 12);
+    --battery-inset-y: calc(1.25rem / 4);
+    --battery-glyph-width: calc(1.25rem * 5 / 6);
+  }
+
+  .cell--battery-horizontal > .battery ha-icon {
+    transform: rotate(90deg);
+  }
+
+  /* Corners of the whole cell: the glyph's edges line up with the content
+     edges (left 28px, clear of the accent rail; right 16px; bottom 18px,
+     where the rail ends). Upper corners are centred on the name's first
+     line. */
+  .cell--battery-upper-left > .battery,
+  .cell--battery-upper-right > .battery {
+    top: calc(16px + (1.25 * 1.375rem - 1.25rem) / 2);
+    top: calc(16px + (1.25 * clamp(1.25rem, 10cqi, 1.625rem) - 1.25rem) / 2);
+  }
+
+  .cell--battery-lower-left > .battery,
+  .cell--battery-lower-right > .battery {
+    bottom: calc(18px - var(--battery-inset-y));
+  }
+
+  .cell--battery-upper-left > .battery,
+  .cell--battery-lower-left > .battery {
+    left: calc(28px - var(--battery-inset-x));
+  }
+
+  .cell--battery-upper-right > .battery,
+  .cell--battery-lower-right > .battery {
+    right: calc(16px - var(--battery-inset-x));
+  }
+
+  /* The text on the battery's side keeps clear of it: the name in the upper
+     corners; in the lower left, the bottom line of text (the humidity, or
+     the temperature in a cell without humidity), whose digits reach down to
+     the content edge. Lower-right needs nothing: text is left-aligned. */
+  .cell--battery-upper-right > .name {
+    padding-right: calc(var(--battery-glyph-width) + 0.5rem);
+  }
+
+  .cell--battery-upper-left > .name {
+    padding-left: calc(var(--battery-glyph-width) + 0.5rem);
+  }
+
+  .cell--battery-lower-left > .humidity,
+  .cell--battery-lower-left.cell--battery-only > .reading {
+    padding-left: calc(var(--battery-glyph-width) + 0.5rem);
   }
 
   /* A battery-only cell keeps the height it had when the battery sat in a
@@ -557,15 +620,21 @@ const STYLES = `
       max-width: 15rem;
     }
 
-    /* The graph fills the right of the cell from the top, so the battery
-       sits at the top right of the left-hand column instead. */
     .cell--graph > .name {
       box-sizing: border-box;
     }
 
-    .cell--graph > .battery {
-      right: auto;
-      left: calc(28px + 15rem - 1.25rem * 3 / 4);
+    /* A battery in a right corner stays at the cell's own right edge, beyond
+       the graph: the graph ends one battery width (plus a gap) earlier, so
+       the battery never covers the line or the axis labels. The name, now
+       far from it, needs no inset. */
+    .cell--graph.cell--battery-upper-right > .graph,
+    .cell--graph.cell--battery-lower-right > .graph {
+      right: calc(16px + var(--battery-glyph-width) + 0.5rem);
+    }
+
+    .cell--graph.cell--battery-upper-right > .name {
+      padding-right: 0;
     }
   }
 
@@ -803,6 +872,8 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
   const precision = {
     temperaturePrecision: precisionField(raw, "temperature_precision", DEFAULT_TEMPERATURE_PRECISION),
     humidityPrecision: precisionField(raw, "humidity_precision", DEFAULT_HUMIDITY_PRECISION),
+    batteryPosition: choiceField(raw, "battery_position", BATTERY_POSITIONS, DEFAULT_BATTERY_POSITION),
+    batteryOrientation: choiceField(raw, "battery_orientation", BATTERY_ORIENTATIONS, DEFAULT_BATTERY_ORIENTATION),
   };
 
   if (raw.sensors !== undefined) {
@@ -823,6 +894,18 @@ function normalizeConfig(config: unknown): TemperatureCardConfig {
   }
   if (typeof raw.entity !== "string" || raw.entity.trim() === "") throw new Error(USAGE);
   return { sensors: [{ temp_entity: raw.entity.trim() }], ...precision };
+}
+
+/** A card-wide choice from a fixed list (trimmed), or the default when omitted. */
+function choiceField<T extends string>(raw: Record<string, unknown>, key: string, choices: readonly T[], fallback: T): T {
+  const value = raw[key];
+  if (value === undefined || value === null) return fallback;
+  const text = typeof value === "string" ? value.trim() : undefined;
+  const choice = choices.find((c) => c === text);
+  if (choice === undefined) {
+    throw new Error(`'${key}' must be one of ${choices.join(", ")} (got ${JSON.stringify(value)}).`);
+  }
+  return choice;
 }
 
 /** A card-wide decimal count: a whole number 0..MAX_PRECISION, or the default when omitted. */
@@ -1036,7 +1119,9 @@ interface CellContent {
 function renderCellContent(hass: HomeAssistant, cell: CellContent, config: TemperatureCardConfig): string {
   // Without a battery the cell is unchanged. With one, the battery sits at
   // the top right (see the battery styles).
-  const batteryClasses = cell.batteryEntity ? (cell.hasHumidity ? " cell--battery" : " cell--battery cell--battery-only") : "";
+  const batteryClasses = cell.batteryEntity
+    ? ` cell--battery${cell.hasHumidity ? "" : " cell--battery-only"} cell--battery-${config.batteryPosition} cell--battery-${config.batteryOrientation}`
+    : "";
   // The rail reads --temperature-card-accent; setting it on the cell gives
   // that cell's rail its temperature colour. No band: the theme's accent.
   const band = temperatureState(cell.temperature);
@@ -1056,6 +1141,17 @@ function renderCellContent(hass: HomeAssistant, cell: CellContent, config: Tempe
   `;
 }
 
+/**
+ * The plot size for a sensor cell: a battery in a right corner keeps a
+ * column at the cell's right edge (its glyph width plus a 0.5rem gap, as in
+ * the CSS), so that cell's plot is that much narrower.
+ */
+function batteryColumn(sensor: SensorConfig, config: TemperatureCardConfig, size: GraphSize): GraphSize {
+  if (!sensor.battery_entity || !config.batteryPosition.endsWith("-right")) return size;
+  const glyphRem = config.batteryOrientation === "vertical" ? 1.25 / 2 : (1.25 * 5) / 6;
+  return { ...size, plotWidth: size.plotWidth - (glyphRem + 0.5) * size.rem };
+}
+
 /** `graph`: set when the cells are wide enough for a history graph (see TemperatureCard._measure). */
 function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig, graph?: GraphSize): string {
   const stateObj = hass.states[sensor.temp_entity];
@@ -1067,7 +1163,7 @@ function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: Temperatu
       humidityHtml: renderHumidity(hass, sensor.humidity_entity, config.humidityPrecision),
       hasHumidity: Boolean(sensor.humidity_entity),
       batteryEntity: sensor.battery_entity,
-      graphHtml: graph ? sensorGraph(hass, sensor, config, graph) : "",
+      graphHtml: graph ? sensorGraph(hass, sensor, config, batteryColumn(sensor, config, graph)) : "",
     },
     config,
   );
