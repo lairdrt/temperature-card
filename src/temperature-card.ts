@@ -221,7 +221,8 @@ function temperatureState(stateObj: HassEntity | undefined): TemperatureState | 
  * chain (--ha-card-border-color, then --divider-color).
  *
  * Text that cannot fit wraps or, as a last resort, breaks, rather than
- * overflowing its cell. Names are limited to two lines.
+ * overflowing its cell, except the readings: a temperature and its unit,
+ * and a humidity value and its "%", always stay together on one line. Names are limited to two lines.
  */
 /**
  * History graphs appear only in cells whose content box is at least this
@@ -230,7 +231,8 @@ function temperatureState(stateObj: HassEntity | undefined): TemperatureState | 
  * history at all) both use it.
  */
 const GRAPH_MIN_CELL_REM = 30;
-/** Graph geometry (rem): where it starts in the cell, and the temperature-label column on its right. */
+/** Graph geometry (rem): the text column beside it, where it starts in the cell, and its temperature-label column. */
+const GRAPH_TEXT_REM = 15;
 const GRAPH_LEFT_REM = 16.5;
 const GRAPH_VALUES_REM = 3.25;
 
@@ -320,13 +322,13 @@ const STYLES = `
 
   .reading {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: flex-start;
     column-gap: 0.08em;
     min-height: 1em;
     margin-top: 0.375rem;
     font-size: 3.5rem;
-    font-size: clamp(2.75rem, 33cqi, 6rem);
+    font-size: clamp(min(2.75rem, 33cqi), 33cqi, 6rem);
     line-height: 1;
   }
 
@@ -335,7 +337,11 @@ const STYLES = `
     min-width: 0;
   }
 
+  /* The value and its unit are one unbreakable unit: neither shrinks, wraps
+     or breaks inside, so the unit can never drop to a line of its own. */
   .value {
+    flex: none;
+    white-space: nowrap;
     font-weight: min(var(--ha-font-weight-normal, 400), 600);
     letter-spacing: -0.03em;
   }
@@ -343,6 +349,8 @@ const STYLES = `
   /* Smaller and raised: margin-top lines the top of the unit up with the
      top of the numerals. */
   .unit {
+    flex: none;
+    white-space: nowrap;
     font-size: max(1.125rem, 0.38em);
     margin-top: 0.2em;
     color: var(--secondary-text-color);
@@ -370,6 +378,7 @@ const STYLES = `
   }
 
   .humidity-value {
+    white-space: nowrap;
     font-size: 2rem;
     font-size: clamp(1.75rem, 18cqi, 2.5rem);
     font-weight: min(var(--ha-font-weight-normal, 400), 600);
@@ -478,6 +487,15 @@ const STYLES = `
   .cell--battery-lower-left > .humidity,
   .cell--battery-lower-left.cell--battery-only > .reading {
     padding-left: calc(var(--battery-glyph-width) + 0.5rem);
+  }
+
+  /* In a cell narrow enough that the temperature scales with it (below its
+     2.75rem floor), a temperature inset beside a lower-left battery scales
+     with the width left beside the battery, so it still fits on one line. */
+  @container (max-width: 8.33rem) {
+    .cell--battery-lower-left.cell--battery-only > .reading {
+      font-size: calc(0.33 * (100cqi - var(--battery-glyph-width) - 0.5rem));
+    }
   }
 
   /* A battery-only cell keeps the height it had when the battery sat in a
@@ -609,7 +627,7 @@ const STYLES = `
       position: absolute;
       top: 16px;
       bottom: 18px;
-      left: calc(28px + ${GRAPH_LEFT_REM}rem);
+      left: calc(28px + var(--graph-text-column, ${GRAPH_TEXT_REM}rem) + ${GRAPH_LEFT_REM - GRAPH_TEXT_REM}rem);
       right: 16px;
       pointer-events: none;
     }
@@ -617,7 +635,7 @@ const STYLES = `
     .cell--graph > .name,
     .cell--graph > .reading,
     .cell--graph > .humidity {
-      max-width: 15rem;
+      max-width: var(--graph-text-column, ${GRAPH_TEXT_REM}rem);
     }
 
     .cell--graph > .name {
@@ -1114,6 +1132,8 @@ interface CellContent {
   attrs?: string;
   /** History graph markup ("" or undefined for none). */
   graphHtml?: string;
+  /** Text column width in px beside the graph, when wider than the default. */
+  textColumn?: number;
 }
 
 function renderCellContent(hass: HomeAssistant, cell: CellContent, config: TemperatureCardConfig): string {
@@ -1125,9 +1145,12 @@ function renderCellContent(hass: HomeAssistant, cell: CellContent, config: Tempe
   // The rail reads --temperature-card-accent; setting it on the cell gives
   // that cell's rail its temperature colour. No band: the theme's accent.
   const band = temperatureState(cell.temperature);
-  const bandAttrs = band
-    ? ` data-temperature-state="${band}" style="--temperature-card-accent: ${TEMPERATURE_STATE_COLORS[band]}"`
-    : "";
+  // A graph cell whose reading needs a wider text column carries that width.
+  const styles = [
+    ...(band ? [`--temperature-card-accent: ${TEMPERATURE_STATE_COLORS[band]}`] : []),
+    ...(cell.graphHtml && cell.textColumn ? [`--graph-text-column: ${cell.textColumn}px`] : []),
+  ];
+  const bandAttrs = (band ? ` data-temperature-state="${band}"` : "") + (styles.length ? ` style="${styles.join("; ")}"` : "");
   // A graph, when there is one, comes last and is laid out on the right
   // (wide cells only; see the graph styles). Without one the cell is unchanged.
   const graph = cell.graphHtml ? { classes: " cell--graph", html: cell.graphHtml } : { classes: "", html: "" };
@@ -1164,6 +1187,7 @@ function renderCell(hass: HomeAssistant, sensor: SensorConfig, config: Temperatu
       hasHumidity: Boolean(sensor.humidity_entity),
       batteryEntity: sensor.battery_entity,
       graphHtml: graph ? sensorGraph(hass, sensor, config, batteryColumn(sensor, config, graph)) : "",
+      textColumn: graph?.textColumn,
     },
     config,
   );
@@ -1256,6 +1280,7 @@ function renderRollUp(
         ? ` role="button" tabindex="0" data-open-group="${escapeHtml(target.id)}" title="${escapeHtml(`Open ${target.name}`)}" aria-label="${escapeHtml(label)}"`
         : "",
       graphHtml: graph ? rollUpGraph(hass, item, temperature, config, graph) : "",
+      textColumn: graph?.textColumn,
     },
     config,
   );
@@ -1435,6 +1460,8 @@ interface GraphSize {
   plotWidth: number;
   /** Root font size in px; the labels are 1rem. */
   rem: number;
+  /** Text column width in px when the reading needs more than the default (see TemperatureCard._measure). */
+  textColumn?: number;
 }
 
 /** A sensor cell's graph: its own temperature history. */
@@ -1712,6 +1739,14 @@ export class TemperatureCard extends HTMLElement {
   private _switchTimer?: number;
   /** Set when the cells are wide enough for history graphs: the plot's size (see _measure). */
   private _graphSize?: GraphSize;
+  /**
+   * Cells on show (by position) whose temperature and unit would leave too
+   * little room for a graph even with a wider text column: they are shown
+   * without their graph, so the reading never has to break (see _textColumns).
+   */
+  private _crowded = new Set<number>();
+  /** Cells on show (by position) whose reading needs a wider text column than the default: its width in px. */
+  private _columns = new Map<number, number>();
   private _resizeObserver?: ResizeObserver;
   private _historyTimer?: number;
 
@@ -1810,7 +1845,7 @@ export class TemperatureCard extends HTMLElement {
     const html = `
       <style>${STYLES}</style>
       <ha-card>
-        <div class="grid">${config.sensors.map((sensor) => renderCell(hass, sensor, config, this._graphSize)).join("")}</div>
+        <div class="grid">${config.sensors.map((sensor, index) => renderCell(hass, sensor, config, this._graphFor(index))).join("")}</div>
         <div class="build">${escapeHtml(TEMPERATURE_CARD_BUILD)}</div>
       </ha-card>
     `;
@@ -1849,10 +1884,10 @@ export class TemperatureCard extends HTMLElement {
 
     const group = groups.find((g) => g.id === this._activeGroupId) ?? groups[0];
     const html = group.items
-      .map((item) =>
+      .map((item, index) =>
         item.kind === "sensor"
-          ? renderCell(hass, item.sensor, config, this._graphSize)
-          : renderRollUp(hass, item, groups, config, this._graphSize),
+          ? renderCell(hass, item.sensor, config, this._graphFor(index))
+          : renderRollUp(hass, item, groups, config, this._graphFor(index)),
       )
       .join("");
     if (html === this._gridHtml) return;
@@ -1879,6 +1914,7 @@ export class TemperatureCard extends HTMLElement {
   private _measure(): void {
     const cell = this.shadowRoot?.querySelector<HTMLElement>(".grid > .cell");
     let size: GraphSize | undefined;
+    let layout = { crowded: new Set<number>(), columns: new Map<number, number>() };
     if (cell && this.isConnected) {
       const style = getComputedStyle(cell);
       const content = cell.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
@@ -1886,13 +1922,60 @@ export class TemperatureCard extends HTMLElement {
       if (content >= GRAPH_MIN_CELL_REM * rem) {
         // Whole 4px steps, so small resizes do not re-render.
         size = { plotWidth: Math.floor((content - (GRAPH_LEFT_REM + GRAPH_VALUES_REM) * rem) / 4) * 4, rem };
+        layout = this._textColumns(size, rem);
       }
     }
-    if (size?.plotWidth !== this._graphSize?.plotWidth || size?.rem !== this._graphSize?.rem) {
+    const { crowded, columns } = layout;
+    const sameLayout =
+      crowded.size === this._crowded.size &&
+      [...crowded].every((index) => this._crowded.has(index)) &&
+      columns.size === this._columns.size &&
+      [...columns].every(([index, width]) => this._columns.get(index) === width);
+    if (size?.plotWidth !== this._graphSize?.plotWidth || size?.rem !== this._graphSize?.rem || !sameLayout) {
       this._graphSize = size;
+      this._crowded = crowded;
+      this._columns = columns;
       this._render();
     }
     if (size) this._requestHistory();
+  }
+
+  /**
+   * Readable current temperature before the optional graph. A cell whose
+   * temperature and unit (with any inset beside them) are wider than the
+   * default text column gets a wider column, and its graph gives up that
+   * width; if that would leave the plot narrower than it is at the graph
+   * threshold, the cell shows no graph instead. Wide cells use the same
+   * temperature size with or without a graph, so this measures the same
+   * either way, and a cell gets its graph back once its reading fits again.
+   */
+  private _textColumns(size: GraphSize, rem: number): { crowded: Set<number>; columns: Map<number, number> } {
+    const crowded = new Set<number>();
+    const columns = new Map<number, number>();
+    const minimumPlot = (GRAPH_MIN_CELL_REM - GRAPH_LEFT_REM - GRAPH_VALUES_REM) * rem;
+    this.shadowRoot?.querySelectorAll<HTMLElement>(".grid > .cell").forEach((cell, index) => {
+      const reading = cell.querySelector<HTMLElement>(".reading");
+      if (!reading?.querySelector(".value")) return;
+      const style = getComputedStyle(reading);
+      const items = [...reading.children].map((child) => child.getBoundingClientRect().width);
+      const needed =
+        (parseFloat(style.paddingLeft) || 0) +
+        items.reduce((sum, w) => sum + w, 0) +
+        (parseFloat(style.columnGap) || 0) * Math.max(0, items.length - 1);
+      if (needed <= GRAPH_TEXT_REM * rem + 0.5) return;
+      const column = Math.ceil(needed / 4) * 4;
+      if (size.plotWidth - (column - GRAPH_TEXT_REM * rem) < minimumPlot - 4) crowded.add(index);
+      else columns.set(index, column);
+    });
+    return { crowded, columns };
+  }
+
+  /** The graph size for the cell at `index`, or undefined if it shows no graph. */
+  private _graphFor(index: number): GraphSize | undefined {
+    const size = this._graphSize;
+    if (!size || this._crowded.has(index)) return undefined;
+    const column = this._columns.get(index);
+    return column ? { ...size, plotWidth: size.plotWidth - (column - GRAPH_TEXT_REM * size.rem), textColumn: column } : size;
   }
 
   /** Loads (or refreshes, when due) the history of the cells on show, then re-renders. */
@@ -1938,6 +2021,8 @@ export class TemperatureCard extends HTMLElement {
     const previous = this._activeIndex();
     if (group.id !== this._activeGroupId) {
       this._activeGroupId = group.id;
+      this._crowded = new Set();
+      this._columns = new Map();
       this._syncTabs();
       this._render();
       const grid = this.shadowRoot?.querySelector<HTMLElement>(".grid");

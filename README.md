@@ -64,6 +64,12 @@ configure.
   size). Narrower cells look exactly as they do without the graph. In
   practice: a one-column card about 550 px or wider, or two cells side by
   side on a card about 1,085 px or wider.
+- **The current temperature comes first:** a temperature and its unit (and a
+  humidity value and its `%`) always stay together on one line. If a
+  reading such as `101.2 °F` is too wide for the text beside the graph, the
+  text gets the room it needs and the graph narrows; if that would make the
+  graph smaller than its minimum, that cell shows no graph until the reading
+  fits again.
 - **What it shows:** one line on the plain cell background, up to four faint
   guide lines labelled with round temperatures on the right (e.g. `60°
   70° 80° 90°`), and local times underneath (e.g. `8 PM  4 AM  Now`, more
