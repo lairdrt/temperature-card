@@ -13,14 +13,13 @@ theme (light or dark), and needs no extra integrations or helper entities.
 
 ### Grouped card with averages
 
-![A grouped Temperature Card on a dark dashboard, Overview tab selected: an "Inside" tile reading 80.1 °F and 51% and an "Outside" tile reading 88.8 °F, each with a 24-hour history graph labelled 4 PM, 12 AM, 8 AM and Now](docs/images/temp1.png)
+![A grouped Temperature Card on a dark dashboard, Overview tab selected: an "Inside" tile reading 78.9 °F and 52% and an "Outside" tile reading 88.8 °F, each with a 24-hour history graph labelled 4 PM, 12 AM, 8 AM and Now](docs/images/temp1.png)
 
 The **Overview** tab of a card with five tabs (Overview, Inside, Outside,
 Kitchen Fridge, Garage Fridge). "Inside" and "Outside" are **roll-up** tiles:
 each shows the average of several sensors, with an averaged 24-hour history
 graph. The colored bar on the left of each tile reflects the current
-temperature. The small text under the card is the build tag. (The dark banner
-at the top is the browser's own full-screen notice, not part of the card.)
+temperature. The small text under the card is the build tag.
 
 ### Individual sensors with history and battery icons
 
