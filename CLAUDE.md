@@ -4,11 +4,37 @@
 
 This repository contains `temperature-card`, a custom Home Assistant Lovelace card for temperature sensors.
 
-The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.3.0-baseline` (see below; the earlier `v0.2.0-baseline` and `v0.1.0-baseline` tags are kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, a permanent build tag, optional ordered groups shown as tabs with roll-up average cells, automatic 24-hour history graphs in wide cells, and MDI battery icons with configurable placement (all part of `v0.3.0-baseline`). History configuration, interactive charts, configurable color ranges, and a visual editor are not built. Do not describe or assume features that have not been built.
+The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.4.0-baseline` (see below; the earlier `v0.3.0-baseline`, `v0.2.0-baseline` and `v0.1.0-baseline` tags are kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, a permanent build tag, optional ordered groups shown as tabs with roll-up average cells, automatic 24-hour history graphs in wide cells, MDI battery icons with configurable placement (all part of `v0.3.0-baseline`), plus atomic temperature/humidity readings and native HA More Info drill-down from sensor graphs (added in `v0.4.0-baseline`). History configuration, interactive charts, configurable color ranges, and a visual editor are not built. Do not describe or assume features that have not been built.
 
-## Known-Good Baseline: v0.3.0-baseline
+## Known-Good Baseline: v0.4.0-baseline
 
-- Current known-good baseline: `v0.3.0-baseline`
+- Current known-good baseline: `v0.4.0-baseline` (the current preferred recovery/reference point for future work)
+- Approved feature commit: `ab05277` (`ab05277ef2952b382b742236be34620acb55a35a`)
+- Approved deployed build: `TEMPERATURE ab05277-47663b` (visually and functionally approved in real Home Assistant)
+
+The approved baseline includes everything in `v0.3.0-baseline` (grouped/tabbed views in config order, swipe navigation, direct sensor and roll-up cells, current and historical roll-up averages, `open_group`, 24-hour graphs with local-time and temperature axes shown by cell width, MDI battery icons with configurable `battery_position` / `battery_orientation`), plus:
+
+1. Atomic readings (`f593073`):
+   - the current temperature value and its HA unit never separate onto different lines; a humidity value and its `%` never separate;
+   - the current reading takes priority over the optional graph: a wide reading widens that cell's text column and narrows its graph, and the graph is hidden only if it would fall below its threshold size, so the graph narrows or hides before the temperature and unit could split.
+2. Native HA graph drill-down (`ab05277`):
+   - individual sensor mini graphs only; fires `hass-more-info` for the sensor's canonical `temp_entity`;
+   - a single click or tap does nothing; a desktop double-click or a touch double-tap opens More Info; both activations must target the same sensor graph;
+   - swipes and drags never count as taps (a swipe starting on a graph still changes groups);
+   - keyboard Enter / Space on a focused sensor graph opens More Info immediately;
+   - roll-up graphs remain non-interactive.
+
+Notes:
+
+- Right-side battery positions mean the true far-right edge of the whole cell, beyond the graph.
+- Roll-up cells show no battery.
+- The user's preferred battery usage remains `battery_position: lower-right` with `battery_orientation: vertical`. This is a usage preference in the user's YAML only; the code defaults stay `upper-right` / `vertical`. Do not change the defaults unless the user explicitly requests it later.
+
+Do not regress this baseline without an explicit request from the user.
+
+## Previous Baseline: v0.3.0-baseline
+
+- Baseline: `v0.3.0-baseline` (tag target `549b5ba`; superseded as current by `v0.4.0-baseline`, kept unchanged)
 - Approved feature commit: `d7fec54` (`d7fec54ce82e735d422196565239ab28cbb4069c`)
 - Approved deployed build: `TEMPERATURE d7fec54-413ef3` (visually and functionally approved in real Home Assistant)
 
@@ -61,7 +87,7 @@ Do not regress this baseline without an explicit request from the user.
 - Navigation: tab strip (`role=tablist`, roving tabindex, Arrow/Home/End/Enter/Space), touch/pen swipe on the grid between adjacent groups (no wrap, horizontal dominance threshold, click suppression after a swipe), and roll-up clicks. A 150 ms slide/fade runs on switch, disabled under `prefers-reduced-motion`.
 - The active group is instance state only: it is NOT reset by `hass` updates, survives `setConfig` if its id still exists (otherwise the first group), and is not persisted. Do not add persistence or a default-tab option unless asked.
 - In grouped mode the card skeleton (tabs, panel, build tag) is built once per config; only the grid's HTML is replaced when it changes, so tab focus and tab-strip scroll survive updates. `hass` updates are skipped when no dependency entity state changed.
-- Legacy mode (no `groups`) must stay compatible with `v0.2.0-baseline`: cells without a battery are identical to v0.2.0 (markup and computed styles); battery cells differ only by the battery redesign (icon, corner placement), with the same cell heights. Verify this when changing shared code or styles.
+- Legacy mode (no `groups`) must stay compatible with `v0.2.0-baseline`: cells without a battery are identical to v0.2.0 in markup and geometry (the only computed-style differences are the atomic-reading properties: no wrapping/shrinking of the reading, value, unit and humidity value); battery cells differ only by the battery redesign (icon, corner placement), with the same cell heights. Verify this when changing shared code or styles.
 
 ## Automatic Rail Colors (implemented)
 
@@ -71,7 +97,7 @@ Each cell's accent rail is colored from its current temperature with zero config
 - Only the rail is colored. Do not color the temperature text, panel, humidity, or battery by temperature unless the user explicitly changes the design.
 - The colors are tuned for the rail being drawn at 70% over the cell surface, and checked on Graphite E-ink Dark, HA dark/light, and Frosted Glass Dark. Re-check all four if they change.
 
-## History Graphs (part of v0.3.0-baseline)
+## History Graphs (part of v0.3.0-baseline; drill-down and reading protection added in v0.4.0-baseline)
 
 - A cell whose content box is at least `GRAPH_MIN_CELL_REM` (30rem) wide shows the last 24 h of temperature on its right. The CSS container query and `_measure()` (which also decides whether to fetch at all) use the same constant. Narrower cells must stay identical to the no-graph layout.
 - The graph is absolutely positioned inside the cell (never adds height). Roll-up graphs keep `pointer-events: none`, so taps, swipes and `open_group` clicks reach the cell. A sensor's graph (`.graph--action`, `data-entity` = its `temp_entity`, `role=button`, `tabindex=0`) takes the pointer only to open HA's native More Info by firing `hass-more-info` `{ entityId }` (bubbles, composed): mouse/pen `dblclick` (both presses must be on the same graph: a roll-up's first click can switch tabs under the pointer), touch double-tap (`TAP_SLOP_PX` 10, `TAP_MAX_MS` 500, second tap down within `DOUBLE_TAP_MS` 350 of the first up, same cell position + entity; timestamps, no timers), Enter/Space immediately. Taps share the swipe gesture state in `_onPointerDown/Move/Up`: any swipe, larger movement, long press or `pointercancel` clears a pending tap, as do tab changes, `setConfig` and disconnect. A single click/tap must never open anything. The left content is capped at `GRAPH_TEXT_REM` (15rem) while a graph is shown, unless the reading needs more: then `_measure()`/`_textColumns()` give that cell a wider column (`--graph-text-column` on the cell, 4px steps) and narrow its graph; if the plot would fall below its threshold size, that cell renders without a graph (readable temperature beats the graph). Wide cells use the same temperature size with or without a graph, so the measurement is the same in both states.
