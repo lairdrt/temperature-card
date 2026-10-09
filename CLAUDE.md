@@ -110,8 +110,9 @@ Full theme awareness is required.
 
 The card must be comfortably readable for older eyes.
 
-- No tiny typography. Nothing is smaller than 1rem (16px), and that size is only for short secondary labels; names are at least 1.25rem; the temperature is by far the largest element. Exceptions: the build tag (0.8125rem) and the tertiary battery percentage (0.875–1rem, with the level also shown by the icon's bars and in its label).
-- Battery status is tertiary: bottom right of the cell, never near the name, never competing with temperature or humidity. Low/critical are the only states that draw attention, and they must differ by icon bars as well as color.
+- No tiny typography. Nothing is smaller than 1rem (16px), and that size is only for short secondary labels; names are at least 1.25rem; the temperature is by far the largest element. Exception: the build tag (0.8125rem).
+- Battery status is tertiary: a small MDI battery icon via HA's `ha-icon` (no visible percentage; the exact value is in the tooltip and aria-label) at the top right of the cell, level with the name's first line; the name keeps a small right inset only in battery cells. In graph cells it sits at the top right of the text column, never over the graph. MDI battery glyphs are already upright (terminal on top): do not rotate them. Low/critical are the only states that draw attention, and they differ by icon fill as well as color.
+- A battery-only cell keeps the height it had when the battery had its own bottom tier (`.cell--battery-only > .reading` margin). Moving or restyling the battery must not change cell heights or graph sizes.
 - Humidity is shown as the percentage alone (no visible "humidity"/"RH" label; the word is in the tooltip and screen-reader text). No reading shows "--%".
 - Never shrink text to fit more grid columns. Fewer, readable columns beat more, smaller ones.
 - Use rem-based sizes so the browser's font-size setting is respected.

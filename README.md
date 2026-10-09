@@ -11,7 +11,7 @@ history options, and a visual editor are not built yet.
 - Shows one or more sensors as a grid of cells. Each cell shows a name, the
   current temperature (large, with a smaller raised unit), and optionally the
   current humidity (as a percentage, e.g. `52%`; `--%` when it has no
-  reading) and a small battery indicator.
+  reading) and a small battery icon at the top right.
 - The number of columns follows the card's own width (one column when
   narrow, up to four when wide), and text in each cell scales with that
   cell's width.
@@ -154,28 +154,37 @@ Each item in `sensors`:
 | --- | --- | --- |
 | `temp_entity` | Yes | Temperature entity. |
 | `humidity_entity` | No | Humidity entity shown under the temperature. Omit it and no humidity line is shown. |
-| `battery_entity` | No | Battery-level entity (percent) shown as a small indicator at the bottom right of the cell. Omit it and no battery is shown. |
+| `battery_entity` | No | Battery-level entity (percent) shown as a small battery icon at the top right of the cell. Omit it and no battery is shown. |
 | `name` | No | Display name. Defaults to the temperature entity's friendly name, then its entity ID. |
 | `id` | No | Short identifier (e.g. `kitchen_fridge`) used to refer to this sensor from `groups`. Must be unique. Has no effect without `groups`. |
 
 ### Battery indicator
 
-The battery sits at the bottom right of its sensor's cell, beside the
-humidity line when there is one. It is a small drawn battery whose bars
-show the level, plus the percentage:
+The battery is a small upright Home Assistant (MDI) battery icon at the
+top right of its sensor's cell, level with the name. The icon's fill shows
+the level; there is no visible number. The exact percentage is in its
+tooltip and its accessible label (e.g. "Battery 87%").
 
-| Level | Bars | Shown as |
+| Level | Icon | Color |
 | --- | --- | --- |
-| 90–100% | 4 | normal |
-| 65–89% | 3 | normal |
-| 40–64% | 2 | normal |
-| 15–39% | 1 | low: the battery takes the theme's warning color |
-| 0–14% | 0 | critical: battery and percentage take the theme's error color |
+| 90–100% | `mdi:battery` | normal (secondary text color) |
+| 80–89% | `mdi:battery-90` | normal |
+| 70–79% | `mdi:battery-80` | normal |
+| 60–69% | `mdi:battery-70` | normal |
+| 50–59% | `mdi:battery-60` | normal |
+| 40–49% | `mdi:battery-50` | normal |
+| 30–39% | `mdi:battery-40` | low: the theme's warning color |
+| 20–29% | `mdi:battery-30` | low |
+| 15–19% | `mdi:battery-20` | low |
+| 10–14% | `mdi:battery-20` | critical: the theme's error color |
+| 1–9% | `mdi:battery-10` | critical |
+| 0% | `mdi:battery-outline` | critical |
 
-In very narrow cells that also show humidity, only the battery icon is
-shown; the exact percentage is still available as its tooltip. An unavailable, unknown,
-or missing battery entity shows a faint dashed outline instead of a level;
-it never affects the temperature or humidity.
+An unavailable, unknown or missing battery entity shows a faint
+`mdi:battery-unknown` icon (tooltip "Battery unavailable" or "Battery
+sensor not found"); it never affects the temperature or humidity. When the
+cell shows a history graph, the battery sits at the top right of the
+text column, just left of the graph. Roll-up cells never show a battery.
 
 ## Groups
 

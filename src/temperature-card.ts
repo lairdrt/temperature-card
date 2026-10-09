@@ -380,106 +380,49 @@ const STYLES = `
     white-space: nowrap;
   }
 
-  /* Bottom tier, only in cells with a battery: humidity left, battery
-     right, sharing a baseline. If both cannot fit, the battery wraps under
-     rather than colliding. In a battery-only cell the tier sits at the
-     bottom of the cell, tucked under the number (whose digits have no
-     descenders) and partly into the bottom padding, so it adds almost no
-     height. */
-  .lower {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    column-gap: 0.75rem;
-    row-gap: 0.25rem;
-    margin-top: 0.75rem;
-  }
-
-  .lower > .humidity {
-    margin-top: 0;
-  }
-
-  .lower--battery-only {
-    margin-top: auto;
-    margin-bottom: -0.5rem;
-  }
-
-  /* Battery: deliberately small and tertiary. The icon is drawn with CSS in
-     em units, so it scales with the text and stays crisp. Its bars show the
-     level (0-4), so low and critical are distinguishable without colour. */
+  /* Battery: a small MDI battery icon (HA's own ha-icon) at the top right
+     of the cell, centred on the first line of the name, which keeps clear
+     of it. The icon alone shows the level; the exact percentage is in its
+     tooltip and accessible label. Tertiary: the theme's secondary text
+     colour, the warning colour when low, the error colour when critical.
+     MDI battery glyphs are already upright (terminal at the top) and fill
+     the middle half of their square box, so the box reaches a quarter of
+     its width into the padding to line the glyph up with the content edge. */
   .battery {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.35em;
-    margin-left: auto;
-    font-size: 0.9375rem;
-    font-size: clamp(0.875rem, 6.5cqi, 1rem);
-    line-height: 1;
-    white-space: nowrap;
-    color: var(--secondary-text-color);
-  }
-
-  .battery-icon {
-    position: relative;
-    display: inline-flex;
-    gap: 0.08em;
-    box-sizing: border-box;
-    width: 1.6em;
-    height: 0.82em;
-    margin-right: 0.14em;
-    padding: 0.1em;
-    border: 0.1em solid currentColor;
-    border-radius: 0.2em;
-  }
-
-  .battery-icon::after {
-    content: "";
     position: absolute;
-    left: 100%;
-    top: 50%;
-    width: 0.12em;
-    height: 0.34em;
-    transform: translate(0.1em, -50%);
-    border-radius: 0 0.06em 0.06em 0;
-    background: currentColor;
+    top: calc(16px + (1.25 * 1.375rem - 1.25rem) / 2);
+    top: calc(16px + (1.25 * clamp(1.25rem, 10cqi, 1.625rem) - 1.25rem) / 2);
+    right: calc(16px - 1.25rem / 4);
+    display: flex;
+    width: 1.25rem;
+    height: 1.25rem;
+    color: var(--secondary-text-color);
+    --mdc-icon-size: 1.25rem;
+    --icon-primary-color: currentColor;
   }
 
-  .battery-bar {
-    flex: 1 1 0;
-    border-radius: 0.04em;
-  }
-
-  .battery-bar.on {
-    background: currentColor;
-  }
-
-  .battery--low .battery-icon {
-    color: var(--warning-color, currentColor);
+  .battery--low {
+    color: var(--warning-color, var(--secondary-text-color));
   }
 
   .battery--critical {
-    color: var(--error-color, currentColor);
-  }
-
-  .battery--critical .battery-percent {
-    font-weight: min(var(--ha-font-weight-medium, 500), 600);
+    color: var(--error-color, var(--secondary-text-color));
   }
 
   .battery--unavailable {
     opacity: 0.5;
   }
 
-  .battery--unavailable .battery-icon {
-    border-style: dashed;
+  .cell--battery > .name {
+    padding-right: calc(1.25rem / 2 + 0.5rem);
   }
 
-  /* Beside humidity in a very narrow cell, show the icon alone (it still
-     shows the level; the full value is in its label and tooltip). Grid
-     cells are wide enough for both; this is for unusually narrow cards. */
-  @container (max-width: 159.98px) {
-    .lower > .humidity + .battery .battery-percent {
-      display: none;
-    }
+  /* A battery-only cell keeps the height it had when the battery sat in a
+     tier of its own at the bottom (that tier's net height), so moving the
+     battery changes no cell's height and no graph's size. */
+  .cell--battery-only > .reading {
+    margin-bottom: 0.4375rem;
+    margin-bottom: calc(clamp(0.875rem, 6.5cqi, 1rem) - 0.5rem);
   }
 
   /* Groups (only when 'groups' is configured; none of these selectors match
@@ -610,9 +553,19 @@ const STYLES = `
 
     .cell--graph > .name,
     .cell--graph > .reading,
-    .cell--graph > .humidity,
-    .cell--graph > .lower {
+    .cell--graph > .humidity {
       max-width: 15rem;
+    }
+
+    /* The graph fills the right of the cell from the top, so the battery
+       sits at the top right of the left-hand column instead. */
+    .cell--graph > .name {
+      box-sizing: border-box;
+    }
+
+    .cell--graph > .battery {
+      right: auto;
+      left: calc(28px + 15rem - 1.25rem * 3 / 4);
     }
   }
 
@@ -1025,28 +978,29 @@ function formattedText(hass: HomeAssistant, stateObj: HassEntity, digits: number
 }
 
 /**
- * Battery level bands (on the whole, clamped percentage), highest first.
- * Each band shows its number of bars (of 4); "low" and "critical" are the
- * only ones that draw attention.
+ * The MDI battery icon for a whole, clamped percentage, in steps of ten:
+ * 90-100% "battery", 80-89% "battery-90", ... 1-9% "battery-10", 0%
+ * "battery-outline".
  */
-const BATTERY_LEVELS: ReadonlyArray<{ min: number; level: string; bars: number }> = [
-  { min: 90, level: "full", bars: 4 },
-  { min: 65, level: "high", bars: 3 },
-  { min: 40, level: "medium", bars: 2 },
-  { min: 15, level: "low", bars: 1 },
-  { min: 0, level: "critical", bars: 0 },
-];
+function batteryIcon(percent: number): string {
+  if (percent >= 90) return "mdi:battery";
+  if (percent <= 0) return "mdi:battery-outline";
+  return `mdi:battery-${Math.floor(percent / 10) * 10 + 10}`;
+}
 
-function batteryIcon(bars: number): string {
-  const segments = [0, 1, 2, 3].map((i) => `<span class="battery-bar${i < bars ? " on" : ""}"></span>`).join("");
-  return `<span class="battery-icon" aria-hidden="true">${segments}</span>`;
+/** Low and critical are the only levels that draw attention (by colour). */
+function batterySeverity(percent: number): "normal" | "low" | "critical" {
+  if (percent < 15) return "critical";
+  if (percent < 40) return "low";
+  return "normal";
 }
 
 /**
- * A compact battery indicator: a drawn battery whose bars show the level,
- * plus the percentage (hidden beside humidity in narrow cells). Battery
- * problems never affect the rest of the cell: a missing, unavailable or
- * non-numeric battery shows a faint dashed outline instead.
+ * A compact battery indicator: an MDI battery icon whose fill shows the
+ * level, with the exact percentage in its tooltip and accessible label (no
+ * visible number). Battery problems never affect the rest of the cell: a
+ * missing, unavailable or non-numeric battery shows a faint unknown-battery
+ * icon instead.
  */
 function renderBattery(hass: HomeAssistant, entity: string | undefined): string {
   if (!entity) return "";
@@ -1055,17 +1009,12 @@ function renderBattery(hass: HomeAssistant, entity: string | undefined): string 
   const value = stateObj && stateObj.state.trim() !== "" ? Number(stateObj.state) : NaN;
   if (!stateObj || !Number.isFinite(value)) {
     const label = stateObj ? "Battery unavailable" : "Battery sensor not found";
-    return `<span class="battery battery--unavailable" role="img" aria-label="${label}" title="${label}">${batteryIcon(0)}</span>`;
+    return `<span class="battery battery--unavailable" role="img" aria-label="${label}" title="${label}"><ha-icon icon="mdi:battery-unknown" aria-hidden="true"></ha-icon></span>`;
   }
 
   const percent = Math.min(100, Math.max(0, Math.round(value)));
-  const { level, bars } = BATTERY_LEVELS.find((band) => percent >= band.min) ?? BATTERY_LEVELS[BATTERY_LEVELS.length - 1];
   const text = escapeHtml(formattedText(hass, { ...stateObj, state: String(percent) }, 0));
-  return `
-    <span class="battery battery--${level}" role="img" aria-label="Battery ${text}" title="Battery ${text}">
-      ${batteryIcon(bars)}<span class="battery-percent" aria-hidden="true">${text}</span>
-    </span>
-  `;
+  return `<span class="battery battery--${batterySeverity(percent)}" role="img" aria-label="Battery ${text}" title="Battery ${text}"><ha-icon icon="${batteryIcon(percent)}" aria-hidden="true"></ha-icon></span>`;
 }
 
 /** What one cell shows; sensor cells and roll-up cells both render from this. */
@@ -1085,11 +1034,9 @@ interface CellContent {
 }
 
 function renderCellContent(hass: HomeAssistant, cell: CellContent, config: TemperatureCardConfig): string {
-  // Without a battery the cell is unchanged. With one, humidity (if any)
-  // and the battery share a bottom tier: humidity left, battery right.
-  const lower = cell.batteryEntity
-    ? `<div class="lower${cell.hasHumidity ? "" : " lower--battery-only"}">${cell.humidityHtml}${renderBattery(hass, cell.batteryEntity)}</div>`
-    : cell.humidityHtml;
+  // Without a battery the cell is unchanged. With one, the battery sits at
+  // the top right (see the battery styles).
+  const batteryClasses = cell.batteryEntity ? (cell.hasHumidity ? " cell--battery" : " cell--battery cell--battery-only") : "";
   // The rail reads --temperature-card-accent; setting it on the cell gives
   // that cell's rail its temperature colour. No band: the theme's accent.
   const band = temperatureState(cell.temperature);
@@ -1100,11 +1047,11 @@ function renderCellContent(hass: HomeAssistant, cell: CellContent, config: Tempe
   // (wide cells only; see the graph styles). Without one the cell is unchanged.
   const graph = cell.graphHtml ? { classes: " cell--graph", html: cell.graphHtml } : { classes: "", html: "" };
   return `
-    <div class="cell${cell.classes ?? ""}${graph.classes}"${cell.attrs ?? ""}${bandAttrs}>
+    <div class="cell${cell.classes ?? ""}${batteryClasses}${graph.classes}"${cell.attrs ?? ""}${bandAttrs}>
       <span class="accent" aria-hidden="true"></span>
       <div class="name">${escapeHtml(cell.name)}</div>
       ${renderTemperature(hass, cell.temperature, config.temperaturePrecision)}
-      ${lower}${graph.html}
+      ${cell.humidityHtml}${renderBattery(hass, cell.batteryEntity)}${graph.html}
     </div>
   `;
 }
