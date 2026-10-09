@@ -1,430 +1,576 @@
 # Temperature Card
 
-A custom Home Assistant Lovelace card for temperature sensors.
+A custom [Home Assistant](https://www.home-assistant.io/) dashboard card for
+temperature sensors. It shows several sensors in one card as large, easy-to-read
+tiles, with optional humidity and battery status, a 24-hour history graph in
+each tile that has room for one, and optional tabs that group sensors and show
+averages (for example "Inside" and "Outside").
 
-The goal is a compact, readable, theme-aware temperature dashboard card.
-**This project is in early development.** Configurable color ranges,
-history options, and a visual editor are not built yet.
+It works with any Home Assistant temperature sensor, follows your dashboard
+theme (light or dark), and needs no extra integrations or helper entities.
 
-## What it does today
+## Screenshots
 
-- Shows one or more sensors as a grid of cells. Each cell shows a name, the
-  current temperature (large, with a smaller raised unit), and optionally the
-  current humidity (as a percentage, e.g. `52%`; `--%` when it has no
-  reading) and a small battery icon at the top right.
-- The number of columns follows the card's own width (one column when
-  narrow, up to four when wide), and text in each cell scales with that
-  cell's width.
-- Shows numbers with the card's `temperature_precision` and
-  `humidity_precision` (not each entity's display precision), in your Home
-  Assistant number format and with the entity's unit.
-- Shows "Unavailable", "No reading", or "Entity not found" (and the humidity
-  equivalents) instead of a value when there is nothing to show.
-- Takes its colors from the active Home Assistant theme and uses Home
-  Assistant's font. Each sensor is a softly tinted panel with a thin accent
-  rail, so cells stay clearly separated even in themes whose card and
-  background colors are identical (for example Graphite E-ink Dark).
-- Colors each sensor's accent rail by its current temperature (see below).
-- Optionally arranges sensors into named groups shown one at a time behind a
-  row of tabs, with roll-up cells that show the average of several sensors
-  (see [Groups](#groups)).
-- In cells that are wide enough, draws the last 24 hours of temperature on
-  the right of the cell (see [History graph](#history-graph)).
+### Grouped card with averages
 
-## Accent rail color
+![A grouped Temperature Card on a dark dashboard, Overview tab selected: an "Inside" tile reading 80.1 °F and 51% and an "Outside" tile reading 88.8 °F, each with a 24-hour history graph labelled 4 PM, 12 AM, 8 AM and Now](docs/images/temp1.png)
 
-The thin rail on the left of each sensor is colored automatically from the
-current temperature. Nothing needs configuring: the bands and colors are
-built in.
+The **Overview** tab of a card with five tabs (Overview, Inside, Outside,
+Kitchen Fridge, Garage Fridge). "Inside" and "Outside" are **roll-up** tiles:
+each shows the average of several sensors, with an averaged 24-hour history
+graph. The colored bar on the left of each tile reflects the current
+temperature. The small text under the card is the build tag. (The dark banner
+at the top is the browser's own full-screen notice, not part of the card.)
 
-| Temperature | Rail |
+### Individual sensors with history and battery icons
+
+![The Inside tab of the same card: Hallway 79.5 °F and 51%, Kitchen 79.9 °F and Upstairs 81.0 °F side by side, each with its own history graph and, for Kitchen and Upstairs, a small battery icon in the lower-right corner](docs/images/temp2.png)
+
+The **Inside** tab shows the three sensors behind the "Inside" average, each
+with its own graph. This dashboard places battery icons in the lower-right
+corner (`battery_position: lower-right`).
+
+### Full history in Home Assistant's own dialog
+
+![Home Assistant's More Info dialog for the Kitchen Fridge temperature sensor, showing its current value and a 5-minute aggregated history chart, opened over the Kitchen Fridge tab of the card](docs/images/temp3.png)
+
+Double-clicking (or double-tapping) a sensor's history graph opens Home
+Assistant's standard **More Info** dialog for that sensor, with the full,
+interactive history.
+
+## Features
+
+- Several temperature sensors in one card, each as a tile with a large,
+  readable temperature.
+- Optional humidity for each sensor.
+- Optional battery indicator for each sensor, using Home Assistant battery
+  icons; choose which corner it sits in and whether it is upright or sideways.
+- Responsive grid of one to four columns that follows the card's own width.
+- A colored bar on each tile that shows at a glance whether a temperature is
+  freezing, cold, cool, normal, warm or hot.
+- Optional **groups**: tabs that each show a chosen set of tiles, with swipe
+  navigation between tabs on touch screens.
+- Optional **roll-up** tiles that show the average temperature (and humidity)
+  of several sensors, and can open another tab when tapped.
+- A **24-hour history graph** in each tile that is wide enough, including an
+  averaged history for roll-ups. Graphs come from Home Assistant's recorder.
+- Double-click or double-tap a sensor's graph to open Home Assistant's own
+  history dialog for it.
+- Uses your Home Assistant theme, font, number format, units and 12/24-hour
+  time setting.
+- A small build tag on every card to help with troubleshooting.
+
+## Requirements
+
+- Home Assistant with dashboards (Lovelace). History graphs use the recorder,
+  which is enabled by default.
+- To build the card: [Node.js](https://nodejs.org/) 18 or newer, with npm.
+- A way to copy files into your Home Assistant `config` folder (for example the
+  Samba share, File editor or Studio Code Server add-ons, or SSH).
+
+## Installation
+
+There is no HACS package and no prebuilt download at the moment, so the card
+is installed manually: you build it once, copy two files into Home Assistant,
+and register one of them as a dashboard resource.
+
+### 1. Build the card
+
+Download this repository (with `git clone` or GitHub's **Code → Download ZIP**),
+then in its folder run:
+
+```sh
+npm install
+npm run build
+```
+
+This creates `dist/temperature-card.js`. The other file you need, `loader.js`,
+is in the repository's top folder.
+
+### 2. Copy the two files into Home Assistant
+
+In your Home Assistant configuration folder (the folder that contains
+`configuration.yaml`), create a folder `www/temperature-card/` and copy both
+files into it:
+
+```text
+config/
+└── www/
+    └── temperature-card/
+        ├── loader.js              (from the repository's top folder)
+        └── temperature-card.js    (from dist/)
+```
+
+- The folder name must be exactly `temperature-card`: `loader.js` loads the
+  card from `/local/temperature-card/temperature-card.js`.
+- Home Assistant publishes `config/www/` at the address `/local/`, so these
+  files become `/local/temperature-card/loader.js` and
+  `/local/temperature-card/temperature-card.js`.
+- If the `www` folder did not exist before, restart Home Assistant once so it
+  starts serving `/local/`.
+
+### 3. Register the loader as a dashboard resource
+
+In Home Assistant, go to **Settings → Dashboards**, open the three-dots menu
+(top right) and choose **Resources**, then **Add resource**:
+
+| URL | Resource type |
 | --- | --- |
-| below 32 °F | freezing: ice blue |
-| 32 °F to below 50 °F | cold: blue |
-| 50 °F to below 65 °F | cool: teal |
-| 65 °F to below 78 °F | normal: green |
-| 78 °F to below 90 °F | warm: amber |
-| 90 °F and above | hot: red |
+| `/local/temperature-card/loader.js` | JavaScript module |
 
-Celsius (and kelvin) sensors are classified at the same physical
-temperatures, e.g. 0 °C is "cold" and 25.6 °C is "warm". If a sensor has no
-usable reading or an unrecognized unit, its rail keeps the theme's accent
-color. Only the rail changes; the temperature text and everything else stay
-in the theme's colors.
+Register **only `loader.js`**, not `temperature-card.js`. The loader fetches
+the card itself, with a fresh query string on every page load, so a newly
+copied version is picked up without changing the resource or fighting the
+browser cache.
 
-## History graph
+If you do not see **Resources**, turn on **Advanced mode** in your user
+profile. The exact menu wording can vary slightly between Home Assistant
+versions.
 
-When a cell is wide enough, the card draws that sensor's temperature over
-the last 24 hours on the right-hand side of the cell. The reading, humidity
-and battery stay on the left exactly as before. There is nothing to
-configure.
+If your dashboard resources are managed in YAML instead, add the same resource
+to `configuration.yaml`:
 
-- **When it appears:** it depends on the width of each cell, not the screen.
-  A cell needs at least about 526 px (30rem of content at the default font
-  size). Narrower cells look exactly as they do without the graph. In
-  practice: a one-column card about 550 px or wider, or two cells side by
-  side on a card about 1,085 px or wider.
-- **The current temperature comes first:** a temperature and its unit (and a
-  humidity value and its `%`) always stay together on one line. If a
-  reading such as `101.2 °F` is too wide for the text beside the graph, the
-  text gets the room it needs and the graph narrows; if that would make the
-  graph smaller than its minimum, that cell shows no graph until the reading
-  fits again.
-- **What it shows:** one line on the plain cell background, up to four faint
-  guide lines labelled with round temperatures on the right (e.g. `60°
-  70° 80° 90°`), and local times underneath (e.g. `8 PM  4 AM  Now`, more
-  labels when there is room), in your Home Assistant language and 12/24-hour
-  setting. There is no other chart decoration. The vertical scale follows
-  the sensor's own range over the 24 hours, with a minimum span of 4 °F
-  (about 2 °C) so a steady sensor's small wobble stays small. The line uses
-  the theme's primary color; the accent rail keeps showing the current
-  temperature band. If a sensor was unavailable for a while, the line has a
-  gap there.
-- **Roll-ups:** the graph is the historical average of the same members,
-  computed the same way as the current average. Readings are lined up on
-  shared 5-minute intervals; each interval averages the members that had a
-  reading then (converted to the roll-up's unit). One line, never one per
-  member.
-- **Where the data comes from:** Home Assistant's recorder, in the same way as
-  Home Assistant's own more-info history. Sensors with a `state_class` use
-  5-minute statistics; others use the recorded states, averaged into the same
-  5-minute steps. No helper entities are needed.
-- **Updates:** history is loaded only for the cells on show that are wide
-  enough, is shared by all temperature cards on the page, and refreshes
-  every 5 minutes. Live readings still update immediately and never trigger
-  a history request.
-- **No history:** if the recorder has no data for a sensor, or the request
-  fails, the cell simply shows no graph.
-- **Full history:** double-click a sensor's graph (double-tap on a touch
-  screen) to open Home Assistant's own More Info dialog, with its full
-  history, for that sensor's `temp_entity`. A single click or tap does
-  nothing, so swiping between groups over a graph stays safe. With the
-  keyboard, focus the graph and press Enter or Space. Roll-up graphs are
-  averages with no single entity behind them, so they do not open
-  anything (a roll-up's `open_group` works as before).
+```yaml
+lovelace:
+  resource_mode: yaml
+  resources:
+    - url: /local/temperature-card/loader.js
+      type: module
+```
 
-## Status
+### 4. Reload the page
 
-`v0.1.0-baseline` is the known-good baseline before temperature-range
-coloring: responsive multi-sensor grid, optional humidity, card-wide
-precision options, `temp_entity` / `humidity_entity` configuration,
-theme-derived panels with an accent rail, and the visible build tag. Since
-then: battery indicators, larger names, percentage-only humidity, and
-automatic rail colors.
+Custom cards are loaded when the dashboard page loads, so reload it after
+installing or updating: a hard refresh in a browser (Ctrl+F5, or Cmd+Shift+R on
+a Mac), or close and reopen the Home Assistant app. Clearing the browser cache
+should only be needed if a reload does not help (see
+[Troubleshooting](#troubleshooting)).
 
-`v0.2.0-baseline` is the known-good baseline before groups. Groups, tabs,
-and roll-up averages were added after it; a card without `groups` renders
-exactly as it did at `v0.2.0-baseline`. History graphs were added next;
-cells too narrow for a graph are unchanged.
+### 5. Add the card to a dashboard
 
-## Examples
-
-Several sensors:
+Edit a dashboard, choose **Add card**, pick the **Manual** card (YAML), and
+paste a configuration. The card has no visual editor; it is configured in YAML.
+A minimal example:
 
 ```yaml
 type: custom:temperature-card
 sensors:
-  - name: Garage Fridge
-    temp_entity: sensor.garage_fridge_temperature
-
-  - name: Hallway
-    temp_entity: sensor.home_current_temperature
-    humidity_entity: sensor.home_current_humidity
-
-  - name: Kitchen Freezer
-    temp_entity: sensor.kitchen_kitchen_freezer_temperature
-    humidity_entity: sensor.kitchen_kitchen_freezer_humidity
-    battery_entity: sensor.kitchen_kitchen_freezer_battery
+  - name: Patio
+    temp_entity: sensor.backyard_patio_temperature
 ```
 
-One sensor (simple shorthand):
+Replace `sensor.backyard_patio_temperature` with one of your own temperature
+sensors (you can find entity IDs under **Settings → Devices & services →
+Entities**). More examples are under [Configuration](#configuration).
 
-```yaml
-type: custom:temperature-card
-entity: sensor.garage_fridge_temperature
-```
+### 6. Check that it worked
 
-## Options
+- The card shows your sensor's name and current temperature.
+- Below the card is a small build tag. When you install by hand it reads
+  `__TEMPERATURE_CARD_BUILD__`; that is expected (only the project's own
+  deployment script fills in a version identifier).
+- The browser's developer console (F12) shows a line starting with
+  `temperature-card` when the card loads.
 
-Use either `entity` or `sensors`, not both.
+## Updating
 
-| Option | Description |
-| --- | --- |
-| `entity` | One temperature entity. Shorthand for a one-item `sensors` list. |
-| `sensors` | List of sensors, shown in this order (or arranged by `groups`). |
-| `groups` | Optional ordered list of groups shown as tabs. See [Groups](#groups). |
-| `temperature_precision` | Decimals shown for every temperature on the card: a whole number from 0 to 3. Default `1` (e.g. `77.5 °F`). |
-| `humidity_precision` | Decimals shown for every humidity on the card: a whole number from 0 to 3. Default `0` (e.g. `52%`). |
-| `battery_position` | Corner of each sensor cell for the battery icon: `upper-left`, `upper-right`, `lower-left` or `lower-right`. Default `upper-right`. |
-| `battery_orientation` | Battery icon `vertical` (terminal at the top) or `horizontal` (terminal to the right). Default `vertical`. |
+1. Get the latest version of this repository (for example `git pull`) and run
+   `npm install` and `npm run build` again.
+2. Copy the new `dist/temperature-card.js` (and `loader.js`) over the old files
+   in `config/www/temperature-card/`.
+3. Reload the dashboard page. The resource does not need to change.
 
-The precision options apply to the whole card and take the place of each
-entity's display precision setting in Home Assistant. Numbers still use your
-Home Assistant number format (decimal separator and grouping) and the
-entity's unit.
+## Configuration
+
+### Card options
+
+| Option | Required | Default | Description |
+| --- | --- | --- | --- |
+| `type` | Yes | | `custom:temperature-card` |
+| `sensors` | Yes, unless `entity` is used | | The list of sensors (see below). Without `groups`, every sensor is shown, in this order. |
+| `entity` | | | Shorthand for a card with a single sensor: just its temperature entity. Use either `entity` or `sensors`, not both. |
+| `groups` | No | | Tabs that each show a chosen set of tiles. See [Groups and roll-ups](#groups-and-roll-ups). |
+| `temperature_precision` | No | `1` | Decimals shown for every temperature on the card: a whole number from 0 to 3. |
+| `humidity_precision` | No | `0` | Decimals shown for every humidity on the card: a whole number from 0 to 3. |
+| `battery_position` | No | `upper-right` | Corner of each tile for the battery icon: `upper-left`, `upper-right`, `lower-left` or `lower-right`. |
+| `battery_orientation` | No | `vertical` | `vertical` (terminal at the top) or `horizontal` (terminal pointing right). |
+
+The precision options replace each entity's own display precision on this
+card. Numbers still use your Home Assistant number format (decimal separator
+and digit grouping) and each entity's unit, so Celsius, Fahrenheit and Kelvin
+sensors all work.
+
+### Sensor options
 
 Each item in `sensors`:
 
 | Key | Required | Description |
 | --- | --- | --- |
-| `temp_entity` | Yes | Temperature entity. |
-| `humidity_entity` | No | Humidity entity shown under the temperature. Omit it and no humidity line is shown. |
-| `battery_entity` | No | Battery-level entity (percent) shown as a small battery icon at the top right of the cell. Omit it and no battery is shown. |
-| `name` | No | Display name. Defaults to the temperature entity's friendly name, then its entity ID. |
-| `id` | No | Short identifier (e.g. `kitchen_fridge`) used to refer to this sensor from `groups`. Must be unique. Has no effect without `groups`. |
+| `temp_entity` | Yes | The temperature sensor's entity ID. |
+| `name` | No | Name shown on the tile. Defaults to the entity's friendly name. |
+| `humidity_entity` | No | A humidity sensor shown under the temperature, as a percentage (for example `52%`). |
+| `battery_entity` | No | A battery-level sensor (percent) shown as a small battery icon. |
+| `id` | No | A short, unique name (for example `kitchen_fridge`) used to refer to this sensor in `groups`. |
 
-### Battery indicator
+An invalid configuration (for example a missing `temp_entity` or a misspelled
+option value) shows Home Assistant's error card with a message explaining what
+to fix.
 
-The battery is a small Home Assistant (MDI) battery icon in a corner of its
-sensor's cell; by default the upper right, upright. The icon's fill shows
-the level; there is no visible number. The exact percentage is in its
-tooltip and its accessible label (e.g. "Battery 87%").
+### Examples
 
-| Level | Icon | Color |
-| --- | --- | --- |
-| 90–100% | `mdi:battery` | normal (secondary text color) |
-| 80–89% | `mdi:battery-90` | normal |
-| 70–79% | `mdi:battery-80` | normal |
-| 60–69% | `mdi:battery-70` | normal |
-| 50–59% | `mdi:battery-60` | normal |
-| 40–49% | `mdi:battery-50` | normal |
-| 30–39% | `mdi:battery-40` | low: the theme's warning color |
-| 20–29% | `mdi:battery-30` | low |
-| 15–19% | `mdi:battery-20` | low |
-| 10–14% | `mdi:battery-20` | critical: the theme's error color |
-| 1–9% | `mdi:battery-10` | critical |
-| 0% | `mdi:battery-outline` | critical |
-
-An unavailable, unknown or missing battery entity shows a faint
-`mdi:battery-unknown` icon (tooltip "Battery unavailable" or "Battery
-sensor not found"); it never affects the temperature or humidity. Roll-up
-cells never show a battery.
-
-#### Position and orientation
-
-Two card-wide options choose where the icon sits and which way it faces:
+Several sensors, with humidity and battery:
 
 ```yaml
 type: custom:temperature-card
-temperature_precision: 1
-humidity_precision: 0
-battery_position: upper-right
-battery_orientation: vertical
 sensors:
-  - name: Kitchen Freezer
-    temp_entity: sensor.kitchen_kitchen_freezer_temperature
-    humidity_entity: sensor.kitchen_kitchen_freezer_humidity
-    battery_entity: sensor.kitchen_kitchen_freezer_battery
+  - name: Hallway
+    temp_entity: sensor.hallway_temperature
+    humidity_entity: sensor.hallway_humidity
+
+  - name: Kitchen Fridge
+    temp_entity: sensor.kitchen_fridge_temperature
+    humidity_entity: sensor.kitchen_fridge_humidity
+    battery_entity: sensor.kitchen_fridge_battery
+
+  - name: Garage
+    temp_entity: sensor.garage_temperature
+    battery_entity: sensor.garage_sensor_battery
 ```
 
+One sensor, using the shorthand:
+
 ```yaml
 type: custom:temperature-card
+entity: sensor.backyard_patio_temperature
+```
+
+Whole-number temperatures, with the battery icon lying sideways in the
+lower-right corner:
+
+```yaml
+type: custom:temperature-card
+temperature_precision: 0
 battery_position: lower-right
 battery_orientation: horizontal
 sensors:
   - name: Garage Fridge
-    temp_entity: sensor.garage_garage_fridge_temperature
-    battery_entity: sensor.garage_garage_fridge_battery
+    temp_entity: sensor.garage_fridge_temperature
+    battery_entity: sensor.garage_fridge_battery
 ```
 
-- The corners are those of the whole cell. When a cell shows a history
-  graph, `upper-right` and `lower-right` put the battery at the cell's
-  right edge, beyond the graph; the graph ends a battery's width earlier
-  there so the icon never covers the line or its labels.
-- Upper corners line up with the sensor name; lower corners sit on the
-  bottom edge of the content. Left corners line up with the text, clear of
-  the colored rail.
-- The text beside the icon keeps clear of it with a small inset: the name
-  in the upper corners; in the lower left, the bottom line (the humidity, or
-  the temperature in a cell without humidity).
-- The position does not change with the card's width.
-- Any other value is a configuration error.
+A complete grouped example is in the next section, and
+[`examples/lovelace.yaml`](examples/lovelace.yaml) has a commented one.
 
-## Groups
+### Older option names
 
-Add a top-level `groups` list to split the sensors into named views. The
-card then shows a row of tabs, one per group in the order listed, and
-below it the cells of the selected group. Each sensor you want to use in a
-group needs an `id`.
+Earlier versions used `entity` and `humidity` inside each `sensors` item. They
+still work, but new configurations should use `temp_entity` and
+`humidity_entity`. (The top-level `entity` shorthand is not affected.)
+
+## Groups and roll-ups
+
+Add a `groups` list to split the card into tabs. The tabs appear in the order
+you list them, and each shows its own set of tiles. To use a sensor in a group,
+give it an `id`.
 
 ```yaml
 type: custom:temperature-card
 sensors:
-  - id: kitchen_fridge
-    name: Kitchen Fridge
-    temp_entity: sensor.kitchen_kitchen_fridge_temperature
-    humidity_entity: sensor.kitchen_kitchen_fridge_humidity
-    battery_entity: sensor.kitchen_kitchen_fridge_battery
-
+  - id: kitchen
+    name: Kitchen
+    temp_entity: sensor.kitchen_temperature
   - id: hallway
     name: Hallway
-    temp_entity: sensor.hallway_ecobee_thermostat_current_temperature
-    humidity_entity: sensor.hallway_ecobee_thermostat_current_humidity
-
+    temp_entity: sensor.hallway_temperature
+    humidity_entity: sensor.hallway_humidity
   - id: upstairs
     name: Upstairs
-    temp_entity: sensor.upstairs_landing_ecobee_sensor_temperature
+    temp_entity: sensor.upstairs_temperature
+  - id: patio
+    name: Patio
+    temp_entity: sensor.patio_temperature
+  - id: garage
+    name: Garage
+    temp_entity: sensor.garage_temperature
 
 groups:
   - id: overview
     name: Overview
     items:
       - name: Inside
-        average: [hallway, upstairs]
+        average: [kitchen, hallway, upstairs]
         open_group: inside
+      - name: Outside
+        average: [patio, garage]
+        open_group: outside
 
   - id: inside
     name: Inside
     items:
+      - kitchen
       - hallway
       - upstairs
 
-  - id: kitchen
-    name: Kitchen
+  - id: outside
+    name: Outside
     items:
-      - kitchen_fridge
+      - patio
+      - garage
 ```
 
-Each group:
+Each group has:
 
 | Key | Required | Description |
 | --- | --- | --- |
-| `id` | Yes | Unique identifier of the group. |
-| `name` | Yes | Tab label. |
-| `items` | Yes | Cells shown in this group, in order (at least one). |
+| `id` | Yes | A unique name for the group (used by `open_group`). |
+| `name` | Yes | The tab label. |
+| `items` | Yes | The tiles in this tab, in order (at least one). |
 
-Each item in `items` is one of:
+Each item is either:
 
-- **A sensor id** (e.g. `- hallway`): shows that sensor's normal cell, exactly
-  as it looks without groups (name, temperature, humidity, battery, rail
-  color). A sensor may appear in several groups.
-- **A roll-up**, a mapping with:
+- **a sensor `id`** (for example `- hallway`): that sensor's normal tile. A
+  sensor can appear in several groups; or
+- **a roll-up**, which shows an average:
 
   | Key | Required | Description |
   | --- | --- | --- |
-  | `name` | Yes | Cell name. |
-  | `average` | Yes | List of sensor ids to average (at least one). |
-  | `open_group` | No | Group id to switch to when the cell is clicked or tapped. |
+  | `name` | Yes | The tile's name. |
+  | `average` | Yes | The sensor `id`s to average (at least one). |
+  | `open_group` | No | The `id` of a group to switch to when the tile is clicked or tapped. |
 
-### Roll-up averages
+### How roll-ups work
 
-- The temperature is the average of the members that currently have a
-  numeric reading; unavailable, unknown, missing, or non-numeric members are
-  left out. If none has a reading, the cell shows "Unavailable".
-- Members in the same unit are averaged directly. If members use different
-  units (°F, °C, K), each reading is converted to a common scale first, and
-  the average is shown in Home Assistant's configured temperature unit
-  (or, if that is not available, the unit of the first member with a
-  reading).
-- Humidity is the average of the members that have a usable humidity
-  reading. If no member has one, the roll-up shows no humidity line.
-- Roll-ups never show a battery indicator.
-- The rail color uses the same temperature bands as a sensor cell, applied
-  to the unrounded average.
-- With `open_group`, the roll-up cell works as a button: click, tap, Enter,
-  or Space switches the card to that group's tab. It does not navigate away
-  from the dashboard.
+- The temperature is the average of the sensors that currently have a reading.
+  Unavailable, unknown or missing sensors are left out; if none has a reading,
+  the tile shows "Unavailable".
+- Sensors in different units (°F, °C, K) are converted before averaging, and
+  the result is shown in your Home Assistant temperature unit.
+- Humidity is the average of the members' humidity sensors that have a
+  reading. If none of them has humidity, the tile shows no humidity.
+- The history graph shows the average of the same sensors over the last 24
+  hours: one line, not one per sensor.
+- Roll-ups never show a battery icon, and their graphs do not open the history
+  dialog (they are calculated values, not a single Home Assistant entity).
+- With `open_group`, clicking or tapping the tile switches the card to that
+  tab. It stays on the same dashboard.
 
-### Switching groups
+### Switching tabs
 
-- Click or tap a tab. With the keyboard, focus the tab row: the Left and
-  Right arrow keys select the previous or next tab (wrapping around at the
-  ends), Home and End select the first and last tab, and Enter or Space
-  selects the focused tab.
-- On a touch screen, swipe left or right across the cells to move to the
-  next or previous group. Swiping stops at the first and last group (it
-  does not wrap around), and vertical scrolling of the page is unaffected.
+- Click or tap a tab.
+- On a touch screen, swipe left or right across the tiles to move to the next
+  or previous tab. Swiping stops at the first and last tab, and scrolling the
+  page up and down works as usual.
 - Click or tap a roll-up that has `open_group`.
+- With the keyboard: focus the tab row, then use the Left and Right arrow keys
+  (Home and End jump to the first and last tab).
 
-If there are more tabs than fit, the tab row scrolls sideways and the
-selected tab is kept in view. Switching groups plays a short slide-and-fade,
-which is skipped when the system asks for reduced motion.
+If there are more tabs than fit, the tab row scrolls sideways. The first tab is
+shown when the dashboard loads; the card keeps your selected tab while sensors
+update, but does not remember it across page reloads.
 
-The first group is shown when the dashboard loads. The selected group is not
-remembered across page reloads, and it is not reset by sensor updates. If
-the card's configuration changes, the same group stays selected as long as
-its `id` still exists; otherwise the first group is shown.
+Without `groups`, the card simply shows all of its sensors in one grid.
 
-### Without groups
+## History graphs
 
-`groups` is optional. A card without it works and looks exactly as before:
-every sensor in one grid, no tabs. Adding `id` to sensors without adding
-`groups` changes nothing.
+When a tile is wide enough, the card draws that sensor's temperature over the
+last 24 hours on the right-hand side of the tile, next to the reading. There is
+nothing to configure.
 
-### Older sensor-item keys (deprecated)
+- **When a graph appears** depends only on how wide each tile is, not on your
+  screen. Wide tiles, such as two or three across a full-width desktop
+  dashboard (as in the screenshots), show a graph. Narrow tiles, such as on a
+  phone or four across, do not, and look exactly as they would without the
+  feature.
+- **What it shows:** one line, a few faint guide lines labelled with round
+  temperatures, and local times underneath (for example `4 PM  12 AM  8 AM
+  Now`), using your 12- or 24-hour setting. The vertical scale follows the
+  sensor's own range over the day, so a fridge's small cycles stay visible.
+  If a sensor was unavailable for a while, the line has a gap there.
+- **Where the data comes from:** Home Assistant's recorder, the same data as
+  Home Assistant's own history: 5-minute statistics for sensors that have them,
+  otherwise the recorded states. No helper entities are needed.
+- **Updates:** the graph refreshes every few minutes. The large current
+  temperature updates immediately, as always.
+- **No history:** if Home Assistant has no recorded history for a sensor, its
+  tile simply shows no graph.
 
-Earlier versions used `entity` and `humidity` inside each `sensors` item.
-They still work, but use `temp_entity` and `humidity_entity` in new
-configurations. If an item sets both the new and the old key to different
-entities, the card shows a configuration error rather than guessing.
-(The top-level `entity` shorthand above is not deprecated.)
+### Opening the full history
 
-## Build
+For an individual sensor's graph:
 
-```powershell
+| Action | Result |
+| --- | --- |
+| Single click or tap | Nothing (so swiping between tabs over a graph is safe) |
+| Double-click (mouse) | Opens Home Assistant's More Info dialog for that sensor |
+| Double-tap (touch screen) | Opens Home Assistant's More Info dialog for that sensor |
+| Enter or Space (keyboard, graph focused) | Opens Home Assistant's More Info dialog for that sensor |
+
+The dialog is Home Assistant's own, for the sensor's `temp_entity`, so it
+provides the full history, time range controls and statistics. Swiping across
+a graph still switches tabs and never opens the dialog. Roll-up graphs do not
+open anything.
+
+## Battery indicator
+
+When a sensor has a `battery_entity`, its tile shows a small battery icon. The
+icon's fill shows the level; the exact percentage appears in its tooltip and is
+read by screen readers.
+
+| Level | Icon | Color |
+| --- | --- | --- |
+| 90–100% | `mdi:battery` | normal |
+| 80–89% | `mdi:battery-90` | normal |
+| 70–79% | `mdi:battery-80` | normal |
+| 60–69% | `mdi:battery-70` | normal |
+| 50–59% | `mdi:battery-60` | normal |
+| 40–49% | `mdi:battery-50` | normal |
+| 30–39% | `mdi:battery-40` | low: your theme's warning color |
+| 20–29% | `mdi:battery-30` | low |
+| 15–19% | `mdi:battery-20` | low |
+| 10–14% | `mdi:battery-20` | critical: your theme's error color |
+| 1–9% | `mdi:battery-10` | critical |
+| 0% | `mdi:battery-outline` | critical |
+
+An unavailable or missing battery sensor shows a faint
+`mdi:battery-unknown` icon and never affects the temperature or humidity.
+
+`battery_position` and `battery_orientation` apply to every tile on the card:
+
+- The corners are those of the **whole tile**. With `upper-right` or
+  `lower-right`, the icon sits at the tile's right edge, beyond the history
+  graph; the graph leaves room for it.
+- Upper corners line up with the sensor name; lower corners with the bottom of
+  the tile's text. On the left, the icon stays clear of the colored bar.
+- The text next to the icon moves aside slightly so they never overlap.
+- The position stays the same at every card width.
+
+For example, `battery_position: lower-right` with
+`battery_orientation: vertical` gives the layout in the second screenshot.
+
+## Temperature colors
+
+The colored bar on the left of each tile shows the current temperature band.
+The bands are built in and need no configuration:
+
+| Temperature | Band and color |
+| --- | --- |
+| below 32 °F (0 °C) | freezing: ice blue |
+| 32 °F to below 50 °F | cold: blue |
+| 50 °F to below 65 °F | cool: teal |
+| 65 °F to below 78 °F | normal: green |
+| 78 °F to below 90 °F | warm: amber |
+| 90 °F (32.2 °C) and above | hot: red |
+
+Celsius and Kelvin sensors are classified at the same physical temperatures.
+Roll-ups use their average. Only the bar changes color; everything else
+follows your theme. A sensor with no reading, or with a unit the card does not
+recognize, keeps your theme's accent color.
+
+## Layout and readability
+
+- The grid shows one to four columns depending on the card's width. It prefers
+  fewer columns of readable tiles over more columns of small ones, and text
+  sizes follow your browser's font size setting.
+- A temperature and its unit (for example `78.4 °F`) always stay together on
+  one line, as do a humidity value and its `%`. If a tile's history graph
+  would crowd the reading, the graph gets narrower or is left out of that tile;
+  the reading is never split.
+- If a sensor has no reading, the tile says so ("Unavailable", "No reading" or
+  "Entity not found") instead of showing a number; a missing humidity reading
+  shows `--%`.
+- Colors, surfaces and fonts come from your Home Assistant theme, so the card
+  suits both light and dark themes.
+- Tabs, roll-up tiles with `open_group`, and sensor history graphs can all be
+  reached and used with the keyboard. Switching tabs plays a short animation,
+  which is skipped if your system is set to reduce motion.
+
+## Troubleshooting
+
+### "Custom element doesn't exist: temperature-card" (or the card never appears)
+
+- Check that the resource URL is exactly `/local/temperature-card/loader.js`
+  and its type is **JavaScript module**.
+- Check that both `loader.js` and `temperature-card.js` are in
+  `config/www/temperature-card/` (that exact folder name).
+- If you just created the `www` folder, restart Home Assistant once.
+- Reload the page (hard refresh, or close and reopen the app).
+- In the browser's developer console (F12), a message "Failed to load
+  temperature card" means the loader could not fetch
+  `/local/temperature-card/temperature-card.js`; check the file location.
+
+### An error card with a message
+
+The configuration has a problem; the message names the option to fix, for
+example a missing `temp_entity`, a group item that refers to an unknown sensor
+`id`, or an unsupported `battery_position` value.
+
+### The old version is still showing after an update
+
+- Make sure the new `temperature-card.js` really replaced the old file in
+  `config/www/temperature-card/`.
+- Reload the page with a hard refresh, or fully close and reopen the Home
+  Assistant app. The Home Assistant Companion app also has a "reset frontend
+  cache" option in its settings.
+- If the problem persists, clear the browser's cached files for your Home
+  Assistant site.
+
+### No history graph
+
+- The tile may be too narrow. Make the card wider (for example a full-width
+  section or panel view) or put fewer tiles in a tab.
+- The graph appears a moment after the card loads, once its history has been
+  fetched.
+- Check that the sensor has history in Home Assistant (open it in
+  **History**). Sensors excluded from the recorder have no graph.
+- A tile can also leave its graph out when the reading needs the room (see
+  [Layout and readability](#layout-and-readability)).
+
+### No humidity or battery shown
+
+- Check that `humidity_entity` or `battery_entity` is set for that sensor and
+  spelled correctly.
+- `--%` means the humidity sensor exists but has no reading (or was not found);
+  a faint battery icon with a question mark means the battery sensor is
+  unavailable or missing.
+- Roll-up tiles never show a battery.
+
+### Double-click or double-tap does not open the history
+
+- The graph must be visible in that tile.
+- Only individual sensor graphs open the dialog; roll-up graphs do not.
+- A single click or tap does nothing by design. On a touch screen, tap twice
+  quickly in the same spot; moving your finger while tapping counts as a swipe.
+- With the keyboard, focus the graph and press Enter or Space.
+
+## Limitations
+
+- Manual installation only (no HACS package yet), and YAML-only configuration
+  (no visual editor).
+- The history graph always covers the last 24 hours and has no options.
+- The temperature color bands are fixed.
+- The selected tab is not remembered across page reloads.
+- Roll-up graphs do not open a history dialog, because a roll-up is not a
+  single Home Assistant entity.
+
+## Building from source (developers)
+
+```sh
 npm install
-npm run build
+npm run typecheck   # TypeScript check
+npm run build       # writes dist/temperature-card.js (and a source map)
+npm run dev         # rebuild automatically on change
 ```
 
-This produces `dist/temperature-card.js`. `loader.js` lives at the repository
-root.
+The source is `src/temperature-card.ts`; `dist/` is generated and not stored
+in Git. Contributor notes and project history are in [CLAUDE.md](CLAUDE.md).
 
-## Install into Home Assistant
-
-There is no HACS package. The card is built from source.
-
-1. Create `/config/www/temperature-card/` in Home Assistant. Home Assistant
-   serves `/config/www/` as `/local/`.
-2. Put `temperature-card.js` (from `dist/`) and `loader.js` in that directory.
-   On Windows with the HA config share mapped as `Z:`, `.\deploy.ps1` does
-   this for you (see below).
-3. In **Settings → Dashboards → ⋮ → Resources**, add exactly one resource:
-
-   | URL | Resource type |
-   | --- | --- |
-   | `/local/temperature-card/loader.js` | JavaScript module |
-
-   Do **not** also register `temperature-card.js`. The loader imports it
-   with a fresh `?ts=` query on each page load, so new deployments are picked
-   up without editing the resource or fighting the browser cache.
-4. Add a card using the YAML above, then reload the page.
-
-## Deploy
-
-```powershell
-.\deploy.ps1
-```
-
-`deploy.ps1` expects the HA config share at `Z:` (edit `$HaConfigShare`
-otherwise), an existing `Z:\www\temperature-card\` directory, Git in `PATH`,
-and at least one commit in this repository. It:
-
-1. runs `npm run build`;
-2. hashes `dist/temperature-card.js` and `loader.js` into a manifest;
-3. replaces the `__TEMPERATURE_CARD_BUILD__` placeholder in memory with
-   `TEMPERATURE <short-commit>-<manifest-hash>`;
-4. writes that copy and `loader.js` to `Z:\www\temperature-card\`;
-5. verifies the deployed files and build line.
-
-It only writes into `www\temperature-card` and refuses any other destination.
-It never touches Home Assistant's `.storage`.
-
-To check which build is loaded, look at the small build tag at the bottom-left
-of the card (`TEMPERATURE <commit>-<hash>`); the same line is logged to the
-browser console. If you copy `dist/` by hand instead, the tag shows the
-literal placeholder, which is expected.
-
-## Development
-
-```powershell
-npm run typecheck   # tsc --noEmit
-npm run build       # vite build -> dist/
-npm run dev         # rebuild on change
-```
-
-Source: `src/temperature-card.ts`. `dist/` is generated and ignored by Git.
-Project rules for contributors and AI assistants are in `CLAUDE.md`.
+`deploy.ps1` is the project's own Windows helper for the maintainer's setup,
+where the Home Assistant `config` share is mapped as drive `Z:`. It builds the
+card, copies the two files to `www\temperature-card\` on that share, and
+stamps the build tag with the Git commit and a file hash (for example
+`TEMPERATURE ab05277-47663b`). It is not needed for a normal installation; to
+use it elsewhere, edit `$HaConfigShare` at the top of the script.
 
 ## License
 
-GPL-3.0-only. See `LICENSE`.
+GPL-3.0-only. See [LICENSE](LICENSE).

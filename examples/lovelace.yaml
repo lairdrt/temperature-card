@@ -1,52 +1,102 @@
-# Example.
+# Temperature Card: example dashboard card configuration.
 #
-# Add the card resource once (Settings -> Dashboards -> Resources):
+# Install the card first (see README.md): copy loader.js and
+# temperature-card.js into /config/www/temperature-card/ and add one
+# dashboard resource:
 #   url: /local/temperature-card/loader.js
 #   type: module
-# (loader.js imports temperature-card.js with a fresh ?ts= on every page
-# load; do not register temperature-card.js itself as a resource.)
+# (register loader.js only, not temperature-card.js).
 #
-# Each sensor needs a temp_entity; humidity_entity, battery_entity and name
-# are optional. Replace the entities with sensors from your own Home
-# Assistant.
+# Replace the entity IDs below with sensors from your own Home Assistant.
+# Each sensor needs a temp_entity; name, humidity_entity, battery_entity and
+# id are optional (id is only needed to use the sensor in groups).
 
 type: custom:temperature-card
+
+# All optional; the values shown here are the defaults except the battery
+# position (default upper-right).
+temperature_precision: 1        # decimals for temperatures, 0-3
+humidity_precision: 0           # decimals for humidity, 0-3
+battery_position: lower-right   # upper-left, upper-right, lower-left or lower-right
+battery_orientation: vertical   # vertical or horizontal
+
 sensors:
-  - name: Garage Fridge
-    temp_entity: sensor.garage_fridge_temperature
+  - id: kitchen
+    name: Kitchen
+    temp_entity: sensor.kitchen_temperature
+    battery_entity: sensor.kitchen_sensor_battery
 
-  - name: Hallway
-    temp_entity: sensor.home_current_temperature
-    humidity_entity: sensor.home_current_humidity
+  - id: hallway
+    name: Hallway
+    temp_entity: sensor.hallway_temperature
+    humidity_entity: sensor.hallway_humidity
 
-  - name: Upstairs
-    temp_entity: sensor.den_temperature
-
-  - name: Den
+  - id: upstairs
+    name: Upstairs
     temp_entity: sensor.upstairs_temperature
+    battery_entity: sensor.upstairs_sensor_battery
 
-  - name: Patio
-    temp_entity: sensor.garage_freezer_temperature
+  - id: patio
+    name: Patio
+    temp_entity: sensor.patio_temperature
+    battery_entity: sensor.patio_sensor_battery
 
-  - name: Kitchen Fridge
+  - id: garage
+    name: Garage
+    temp_entity: sensor.garage_temperature
+    battery_entity: sensor.garage_sensor_battery
+
+  - id: kitchen_fridge
+    name: Kitchen Fridge
     temp_entity: sensor.kitchen_fridge_temperature
+    humidity_entity: sensor.kitchen_fridge_humidity
+    battery_entity: sensor.kitchen_fridge_battery
 
-  - name: Kitchen Freezer
-    temp_entity: sensor.kitchen_freezer_temperature
+# Optional: tabs, shown in this order. Items are sensor ids (normal tiles) or
+# roll-ups that average several sensors; open_group makes a roll-up switch to
+# another tab when clicked or tapped. Without groups, every sensor above is
+# shown in one grid.
+groups:
+  - id: overview
+    name: Overview
+    items:
+      - name: Inside
+        average: [kitchen, hallway, upstairs]
+        open_group: inside
+      - name: Outside
+        average: [patio, garage]
+        open_group: outside
 
-  - name: Shed
-    temp_entity: sensor.shed_temperature
+  - id: inside
+    name: Inside
+    items:
+      - kitchen
+      - hallway
+      - upstairs
 
-# With a battery indicator (bottom right of the cell):
+  - id: outside
+    name: Outside
+    items:
+      - patio
+      - garage
+
+  - id: kitchen_fridge
+    name: Kitchen Fridge
+    items:
+      - kitchen_fridge
+
+# Without groups (all sensors in one grid):
 #
 # type: custom:temperature-card
 # sensors:
-#   - name: Kitchen Freezer
-#     temp_entity: sensor.kitchen_kitchen_freezer_temperature
-#     humidity_entity: sensor.kitchen_kitchen_freezer_humidity
-#     battery_entity: sensor.kitchen_kitchen_freezer_battery
+#   - name: Kitchen Fridge
+#     temp_entity: sensor.kitchen_fridge_temperature
+#     humidity_entity: sensor.kitchen_fridge_humidity
+#     battery_entity: sensor.kitchen_fridge_battery
+#   - name: Patio
+#     temp_entity: sensor.patio_temperature
 
-# One sensor (simple shorthand):
+# One sensor (shorthand):
 #
 # type: custom:temperature-card
-# entity: sensor.garage_fridge_temperature
+# entity: sensor.patio_temperature

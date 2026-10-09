@@ -136,7 +136,7 @@ Keep changes small and testable. Preserve known-good behavior. Do not rewrite wo
 Prefer native Home Assistant functionality over recreating it:
 - use the `hass` object and entity state as the authoritative data;
 - use HA's own formatters (e.g. `hass.formatEntityStateToParts`) for values, units, precision, and locale;
-- use HA's native More Info, history, and statistics components when those features are added, rather than custom reimplementations;
+- use HA's native More Info, history, and statistics rather than custom reimplementations (the graph drill-down fires HA's `hass-more-info`; the mini graphs read recorder statistics/history through HA's own WebSocket commands);
 - follow HA conventions for card registration, `setConfig` errors, and sizing.
 
 Do not hard-code assumptions about YoLink, ecobee, or any other integration. The card works on normal HA entities and their state, attributes, and registry/device metadata. Never rely on entity ID naming patterns unless configuration supplies them.
@@ -200,6 +200,12 @@ Do not remove the build tag, the console line, or the placeholder mechanism unle
 ## Generated Files
 
 `dist/` and `node_modules/` are generated and ignored by Git. Do not edit files in `dist/`. Change the source and rebuild.
+
+## Documentation
+
+- `README.md` is the public, user-facing documentation for ordinary Home Assistant users: what the card does, screenshots, manual installation (build, copy `loader.js` and `temperature-card.js` to `config/www/temperature-card/`, register only `/local/temperature-card/loader.js` as a JavaScript module), configuration reference, groups/roll-ups, history graphs and drill-down, battery options, troubleshooting and limitations. Keep it free of internal test matrices, baseline history and AI-workflow instructions; those belong here in `CLAUDE.md`.
+- The README screenshots `docs/images/temp1.png`, `temp2.png` and `temp3.png` are user-approved product screenshots. Do not crop, edit, recompress or replace them without the user's approval.
+- Every card YAML block in `README.md` and the main example in `examples/lovelace.yaml` must be accepted by the current `setConfig`. Update them, and the README configuration reference, whenever options, defaults or behavior change. Do not document HACS or a release download until they exist.
 
 ## Testing
 
