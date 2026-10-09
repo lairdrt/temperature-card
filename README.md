@@ -95,6 +95,13 @@ configure.
   a history request.
 - **No history:** if the recorder has no data for a sensor, or the request
   fails, the cell simply shows no graph.
+- **Full history:** double-click a sensor's graph (double-tap on a touch
+  screen) to open Home Assistant's own More Info dialog, with its full
+  history, for that sensor's `temp_entity`. A single click or tap does
+  nothing, so swiping between groups over a graph stays safe. With the
+  keyboard, focus the graph and press Enter or Space. Roll-up graphs are
+  averages with no single entity behind them, so they do not open
+  anything (a roll-up's `open_group` works as before).
 
 ## Status
 

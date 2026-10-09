@@ -632,6 +632,25 @@ const STYLES = `
       pointer-events: none;
     }
 
+    /* A sensor's graph (not a roll-up's) opens HA's history for that sensor
+       on double-click / double-tap, or Enter / Space. It takes the pointer
+       for that only; swipes still reach the grid (its pan-y touch-action
+       applies here too). */
+    .cell--graph > .graph--action {
+      pointer-events: auto;
+      cursor: pointer;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .cell--graph > .graph--action:focus-visible {
+      outline: 2px solid var(--primary-color, currentColor);
+      outline-offset: 4px;
+      border-radius: 4px;
+    }
+
     .cell--graph > .name,
     .cell--graph > .reading,
     .cell--graph > .humidity {
@@ -1468,7 +1487,11 @@ interface GraphSize {
 function sensorGraph(hass: HomeAssistant, sensor: SensorConfig, config: TemperatureCardConfig, size: GraphSize): string {
   const entry = historyCache.get(sensor.temp_entity);
   if (!entry?.series || entry.fetchedAt === undefined) return "";
-  return renderGraph(hass, [...entry.series], entry.fetchedAt, entityUnit(hass, sensor.temp_entity), config, size);
+  const name = sensor.name || hass.states[sensor.temp_entity]?.attributes.friendly_name || sensor.temp_entity;
+  return renderGraph(hass, [...entry.series], entry.fetchedAt, entityUnit(hass, sensor.temp_entity), config, size, {
+    entity: sensor.temp_entity,
+    name,
+  });
 }
 
 /**
@@ -1652,6 +1675,7 @@ function renderGraph(
   unit: string,
   config: TemperatureCardConfig,
   size: GraphSize,
+  action?: { entity: string; name: string },
 ): string {
   const start = end - HISTORY_SPAN_MS;
   const points = buckets
@@ -1690,7 +1714,12 @@ function renderGraph(
     formattedText(hass, { entity_id: "sensor.temperature_card_history", state: String(value), attributes: { unit_of_measurement: unit, device_class: "temperature" } }, config.temperaturePrecision);
   const label = `Last 24 hours: low ${reading(low)}, high ${reading(high)}`;
 
-  return `<div class="graph" role="img" aria-label="${escapeHtml(label)}"><svg class="graph-plot" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path class="graph-guide" d="${guides}"/><path class="graph-line" d="${line}"/></svg><div class="graph-values">${values}</div><div class="graph-times">${times}</div></div>`;
+  // A sensor's graph opens HA's More Info for its temperature entity (see
+  // TemperatureCard._openHistory); a roll-up's has no single entity.
+  const opening = action
+    ? ` graph--action" role="button" tabindex="0" data-entity="${escapeHtml(action.entity)}" title="Double-click for temperature history" aria-label="${escapeHtml(`Open ${action.name} temperature history. ${label}.`)}"`
+    : `" role="img" aria-label="${escapeHtml(label)}"`;
+  return `<div class="graph${opening}><svg class="graph-plot" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path class="graph-guide" d="${guides}"/><path class="graph-line" d="${line}"/></svg><div class="graph-values">${values}</div><div class="graph-times">${times}</div></div>`;
 }
 
 /** Every temperature entity whose history the given cells graph. */
@@ -1714,6 +1743,14 @@ const SWIPE_MIN_PX = 50;
 const SWIPE_HORIZONTAL_RATIO = 1.5;
 /** After a swipe, ignore the click some browsers still deliver. */
 const SWIPE_CLICK_GUARD_MS = 400;
+/**
+ * Double-tap on a sensor's graph (touch): each tap stays within TAP_SLOP_PX
+ * of where it started and lasts at most TAP_MAX_MS, and the second starts
+ * within DOUBLE_TAP_MS of the first ending, on the same graph.
+ */
+const TAP_SLOP_PX = 10;
+const TAP_MAX_MS = 500;
+const DOUBLE_TAP_MS = 350;
 
 export class TemperatureCard extends HTMLElement {
   private _config?: TemperatureCardConfig;
@@ -1734,7 +1771,22 @@ export class TemperatureCard extends HTMLElement {
   /** Grouped mode: the config the tab strip was built for, and the grid's last markup. */
   private _builtFor?: TemperatureCardConfig;
   private _gridHtml?: string;
-  private _swipe?: { pointerId: number; x: number; y: number };
+  /**
+   * The touch or pen gesture in progress: a possible swipe (grouped mode)
+   * and, if it began on a sensor's graph with touch, a possible tap.
+   */
+  private _swipe?: { pointerId: number; x: number; y: number; at: number; moved: number; graph?: string };
+  /** A first tap on a sensor's graph waiting for its second: which graph (cell position + entity), and when it ended. */
+  private _pendingTap?: { graph: string; at: number };
+  /** Pointer type of the last pointerdown: double-clicks from touch are left to the tap recognizer. */
+  private _lastPointerType = "";
+  /**
+   * The sensor graph (if any) under each of the last two mouse / pen presses.
+   * A double-click counts only if both presses were on the same graph: the
+   * first click can change what is under the pointer (a roll-up's
+   * open_group switches tabs).
+   */
+  private _pressedGraphs: Array<string | undefined> = [];
   private _ignoreClicksUntil = 0;
   private _switchTimer?: number;
   /** Set when the cells are wide enough for history graphs: the plot's size (see _measure). */
@@ -1757,8 +1809,13 @@ export class TemperatureCard extends HTMLElement {
     root.addEventListener("click", (event) => this._onClick(event as MouseEvent));
     root.addEventListener("keydown", (event) => this._onKeyDown(event as KeyboardEvent));
     root.addEventListener("pointerdown", (event) => this._onPointerDown(event as PointerEvent));
+    root.addEventListener("pointermove", (event) => this._onPointerMove(event as PointerEvent));
     root.addEventListener("pointerup", (event) => this._onPointerUp(event as PointerEvent));
-    root.addEventListener("pointercancel", () => (this._swipe = undefined));
+    root.addEventListener("pointercancel", () => {
+      this._swipe = undefined;
+      this._pendingTap = undefined;
+    });
+    root.addEventListener("dblclick", (event) => this._onDoubleClick(event as MouseEvent));
     root.addEventListener("animationend", (event) =>
       (event.target as Element).classList?.remove("switch-next", "switch-prev"),
     );
@@ -1771,6 +1828,8 @@ export class TemperatureCard extends HTMLElement {
   setConfig(config: unknown): void {
     const next = normalizeConfig(config);
     this._config = next;
+    this._pendingTap = undefined;
+    this._pressedGraphs = [];
     this._dependencies = dependencies(next);
     if (!next.groups) this._activeGroupId = undefined;
     else if (!next.groups.some((group) => group.id === this._activeGroupId)) this._activeGroupId = next.groups[0].id;
@@ -1802,6 +1861,8 @@ export class TemperatureCard extends HTMLElement {
   }
 
   disconnectedCallback(): void {
+    this._pendingTap = undefined;
+    this._swipe = undefined;
     this._resizeObserver?.disconnect();
     this._resizeObserver = undefined;
     window.clearInterval(this._historyTimer);
@@ -2022,6 +2083,8 @@ export class TemperatureCard extends HTMLElement {
     if (group.id !== this._activeGroupId) {
       this._activeGroupId = group.id;
       this._crowded = new Set();
+      this._pendingTap = undefined;
+      this._pressedGraphs = [];
       this._columns = new Map();
       this._syncTabs();
       this._render();
@@ -2061,6 +2124,12 @@ export class TemperatureCard extends HTMLElement {
   private _onKeyDown(event: KeyboardEvent): void {
     const groups = this._config?.groups;
     const target = event.target as Element | null;
+    const graph = target?.closest?.<HTMLElement>(".graph--action");
+    if (graph && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      this._openHistory(graph.dataset.entity);
+      return;
+    }
     if (!groups || !target) return;
     const tab = target.closest<HTMLElement>(".tab");
     if (tab) {
@@ -2085,25 +2154,87 @@ export class TemperatureCard extends HTMLElement {
     }
   }
 
-  /** Swipes: touch or pen gestures that start on the grid. */
+  /**
+   * Touch and pen gestures that start on the grid: swipes between groups
+   * (grouped mode), and taps on a sensor's graph (touch), two of which open
+   * its history. A swipe or any larger movement is never a tap.
+   */
   private _onPointerDown(event: PointerEvent): void {
-    if (!this._config?.groups || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
-    if (!(event.target as Element | null)?.closest?.(".grid")) return;
-    this._swipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    this._lastPointerType = event.pointerType;
+    const target = event.target as Element | null;
+    if (event.pointerType !== "touch") {
+      this._pressedGraphs = [this._pressedGraphs[1], this._graphKey(target?.closest?.<HTMLElement>(".graph--action") ?? null)];
+    }
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+    if (!target?.closest?.(".grid")) return;
+    const graph = event.pointerType === "touch" ? this._graphKey(target.closest<HTMLElement>(".graph--action")) : undefined;
+    if (!this._config?.groups && !graph) return;
+    this._swipe = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now(), moved: 0, graph };
+  }
+
+  private _onPointerMove(event: PointerEvent): void {
+    const gesture = this._swipe;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    gesture.moved = Math.max(gesture.moved, Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y));
+    if (gesture.graph && gesture.moved > TAP_SLOP_PX) {
+      gesture.graph = undefined;
+      this._pendingTap = undefined;
+    }
   }
 
   private _onPointerUp(event: PointerEvent): void {
     const start = this._swipe;
     this._swipe = undefined;
-    const groups = this._config?.groups;
-    if (!start || !groups || start.pointerId !== event.pointerId) return;
+    if (!start || start.pointerId !== event.pointerId) return;
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
+    const moved = Math.max(start.moved, Math.hypot(dx, dy));
+    const now = performance.now();
+    if (start.graph && moved <= TAP_SLOP_PX && now - start.at <= TAP_MAX_MS) {
+      this._onGraphTap(start.graph, start.at, now);
+      return;
+    }
+    // Anything else (a swipe, a drag, a scroll, a long press) ends any tap sequence.
+    this._pendingTap = undefined;
+    const groups = this._config?.groups;
+    if (!groups) return;
     if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < SWIPE_HORIZONTAL_RATIO * Math.abs(dy)) return;
     const next = this._activeIndex() + (dx < 0 ? 1 : -1);
     if (next < 0 || next >= groups.length) return;
     this._ignoreClicksUntil = performance.now() + SWIPE_CLICK_GUARD_MS;
     this._selectGroup(next);
+  }
+
+  /** A tap on a sensor's graph: the second of two on the same graph opens its history. */
+  private _onGraphTap(graph: string, downAt: number, upAt: number): void {
+    const pending = this._pendingTap;
+    if (pending && pending.graph === graph && downAt - pending.at <= DOUBLE_TAP_MS) {
+      this._pendingTap = undefined;
+      this._openHistory(graph.slice(graph.indexOf(":") + 1));
+      return;
+    }
+    this._pendingTap = { graph, at: upAt };
+  }
+
+  /** Desktop (mouse / pen) double-click on a sensor's graph; touch uses the tap recognizer. */
+  private _onDoubleClick(event: MouseEvent): void {
+    if (this._lastPointerType === "touch") return;
+    const graph = this._graphKey((event.target as Element | null)?.closest?.<HTMLElement>(".graph--action") ?? null);
+    const [first, second] = this._pressedGraphs;
+    if (graph && first === graph && second === graph) this._openHistory(graph.slice(graph.indexOf(":") + 1));
+  }
+
+  /** Identifies a sensor's graph across re-renders: its cell's position and its entity. */
+  private _graphKey(graph: HTMLElement | null): string | undefined {
+    const cell = graph?.closest(".cell");
+    if (!graph?.dataset.entity || !cell?.parentElement) return undefined;
+    return `${[...cell.parentElement.children].indexOf(cell)}:${graph.dataset.entity}`;
+  }
+
+  /** Opens Home Assistant's own More Info dialog (with its history) for an entity. */
+  private _openHistory(entityId: string | undefined): void {
+    if (!entityId) return;
+    this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
   }
 }
 
