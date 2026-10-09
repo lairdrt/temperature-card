@@ -4,11 +4,38 @@
 
 This repository contains `temperature-card`, a custom Home Assistant Lovelace card for temperature sensors.
 
-The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.2.0-baseline` (see below; the earlier `v0.1.0-baseline` tag is kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, a permanent build tag, optional ordered groups shown as tabs with roll-up average cells, and automatic 24-hour history graphs in wide cells (both added after `v0.2.0-baseline`, not yet tagged). History configuration, interactive charts, configurable color ranges, and a visual editor are not built. Do not describe or assume features that have not been built.
+The long-term goal is a compact, responsive, theme-aware temperature/humidity dashboard card. The current known-good baseline is tagged `v0.3.0-baseline` (see below; the earlier `v0.2.0-baseline` and `v0.1.0-baseline` tags are kept). The current state: a responsive grid of sensor cells (name, temperature, optional humidity, optional battery), card-wide temperature/humidity precision, `temp_entity` / `humidity_entity` / `battery_entity` configuration with legacy compatibility, theme-derived panels with an accent rail that is colored automatically by temperature, a permanent build tag, optional ordered groups shown as tabs with roll-up average cells, automatic 24-hour history graphs in wide cells, and MDI battery icons with configurable placement (all part of `v0.3.0-baseline`). History configuration, interactive charts, configurable color ranges, and a visual editor are not built. Do not describe or assume features that have not been built.
 
-## Known-Good Baseline: v0.2.0-baseline
+## Known-Good Baseline: v0.3.0-baseline
 
-- Current known-good baseline: `v0.2.0-baseline`
+- Current known-good baseline: `v0.3.0-baseline`
+- Approved feature commit: `d7fec54` (`d7fec54ce82e735d422196565239ab28cbb4069c`)
+- Approved deployed build: `TEMPERATURE d7fec54-413ef3` (visually and functionally approved in real Home Assistant)
+
+The approved baseline includes, on top of `v0.2.0-baseline`:
+
+- the responsive temperature/humidity card with automatic temperature-state accent rail colors;
+- grouped/tabbed views, tabs in config order, swipe navigation between tabs;
+- direct sensor cells and aggregate/roll-up cells (current average temperature and humidity);
+- roll-up `open_group` navigation (switches tab in place);
+- 24-hour temperature history graphs, shown or hidden by each cell's own width;
+- x-axis local-time labels and y-axis temperature labels;
+- an averaged historical graph for roll-ups;
+- MDI battery level icons (no visible percentage);
+- configurable `battery_position`: `upper-left`, `upper-right`, `lower-left`, `lower-right` (code default `upper-right`);
+- configurable `battery_orientation`: `horizontal`, `vertical` (code default `vertical`).
+
+Notes:
+
+- Right-side battery positions mean the true far-right edge of the whole cell, beyond the graph (the graph ends one battery column earlier).
+- Roll-up cells show no battery.
+- The user's CURRENT PREFERRED CONFIGURATION is `battery_position: lower-right` with `battery_orientation: vertical`. This is a usage preference set in the user's YAML only; it is not the code default. Do not change the defaults unless the user explicitly requests it as a separate feature change.
+
+Do not regress this baseline without an explicit request from the user.
+
+## Previous Baseline: v0.2.0-baseline
+
+- Baseline: `v0.2.0-baseline` (tag target `7a26fff`; superseded as current by `v0.3.0-baseline`, kept unchanged)
 - Source feature commit: `df1af79fef16d7bd4d610dec1722470c0e0a45e4`
 - Deployed build at time of approval: `TEMPERATURE df1af79-a844fb` (visually approved in real Home Assistant, Graphite E-ink Dark)
 
@@ -24,9 +51,9 @@ The approved baseline includes, on top of `v0.1.0-baseline`:
 
 Do not regress this baseline without an explicit request from the user.
 
-`v0.2.0-baseline` remains the known-good pre-groups baseline. The groups feature below is built on top of it and has not been tagged.
+`v0.2.0-baseline` remains the known-good pre-groups baseline. The groups, history and battery features below are built on top of it and are part of `v0.3.0-baseline`.
 
-## Groups, Tabs, and Roll-ups (implemented, not yet baselined)
+## Groups, Tabs, and Roll-ups (part of v0.3.0-baseline)
 
 - Optional sensor `id` and optional top-level `groups:` (ordered list of `{id, name, items}`). An item is either a sensor id (rendered by the same cell renderer as legacy mode) or a roll-up `{name, average: [sensor ids], open_group?}`.
 - Roll-ups average only members with a numeric temperature; mixed units (°F/℉/°C/℃/K) are converted through °F and shown in HA's `unit_system.temperature` (fallback: first usable member's unit). Humidity averages members with usable humidity; no line if none. Roll-ups never show a battery. The rail uses the existing band classifier on the unrounded average.
@@ -34,7 +61,7 @@ Do not regress this baseline without an explicit request from the user.
 - Navigation: tab strip (`role=tablist`, roving tabindex, Arrow/Home/End/Enter/Space), touch/pen swipe on the grid between adjacent groups (no wrap, horizontal dominance threshold, click suppression after a swipe), and roll-up clicks. A 150 ms slide/fade runs on switch, disabled under `prefers-reduced-motion`.
 - The active group is instance state only: it is NOT reset by `hass` updates, survives `setConfig` if its id still exists (otherwise the first group), and is not persisted. Do not add persistence or a default-tab option unless asked.
 - In grouped mode the card skeleton (tabs, panel, build tag) is built once per config; only the grid's HTML is replaced when it changes, so tab focus and tab-strip scroll survive updates. `hass` updates are skipped when no dependency entity state changed.
-- Legacy mode (no `groups`) must stay pixel-for-pixel identical to `v0.2.0-baseline`: same markup, and the stylesheet is the v0.2.0 stylesheet with grouped-mode rules only appended. Verify this when changing shared code or styles.
+- Legacy mode (no `groups`) must stay compatible with `v0.2.0-baseline`: cells without a battery are identical to v0.2.0 (markup and computed styles); battery cells differ only by the battery redesign (icon, corner placement), with the same cell heights. Verify this when changing shared code or styles.
 
 ## Automatic Rail Colors (implemented)
 
@@ -44,7 +71,7 @@ Each cell's accent rail is colored from its current temperature with zero config
 - Only the rail is colored. Do not color the temperature text, panel, humidity, or battery by temperature unless the user explicitly changes the design.
 - The colors are tuned for the rail being drawn at 70% over the cell surface, and checked on Graphite E-ink Dark, HA dark/light, and Frosted Glass Dark. Re-check all four if they change.
 
-## History Graphs (implemented, not yet baselined)
+## History Graphs (part of v0.3.0-baseline)
 
 - A cell whose content box is at least `GRAPH_MIN_CELL_REM` (30rem) wide shows the last 24 h of temperature on its right. The CSS container query and `_measure()` (which also decides whether to fetch at all) use the same constant. Narrower cells must stay identical to the no-graph layout.
 - The graph is absolutely positioned inside the cell (never adds height) with `pointer-events: none`, so taps, swipes and `open_group` clicks reach the cell. The left content is capped at 15rem while a graph is shown.
